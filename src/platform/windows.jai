@@ -220,19 +220,30 @@ platform_open_in_explorer :: (path: string, reveal := false) {
     ILCreateFromPathW :: (pszPath: *u16) -> *ITEMIDLIST #foreign shell32;
     ILFree :: (pidl: *ITEMIDLIST) -> void #foreign shell32;
     SHOpenFolderAndSelectItems :: (pidlFolder: *ITEMIDLIST, cidl: u32, apidl: **ITEMIDLIST, dwFlags: u32) -> HRESULT #foreign shell32;
+    CoInitialize :: (reserved: *void) -> HRESULT #foreign ole32;
+    CoUninitialize :: () #foreign ole32;
+    
+    CoInitialize(null); // For shell functions
+    defer CoUninitialize();
 
-    path_wide := utf8_to_wide(path,, temp);
+    path_backslashes := copy_string(path,, allocator = temp);
+    path_overwrite_separators(path_backslashes, #char "\\");
+    path_wide := utf8_to_wide(path_backslashes,, temp);
 
     if reveal {
         pidl := ILCreateFromPathW(path_wide);
+        defer ILFree(pidl);
         if pidl {
-            SHOpenFolderAndSelectItems(pidl, 0, null, 0);
-            ILFree(pidl);
+            hr := SHOpenFolderAndSelectItems(pidl, 0, null, 0);
+            if hr == S_OK return;
+        } else {
+            log_error("ILCreateFromPathW returned null for %", path_backslashes);
         }
-    } else {
-        verb_wide := utf8_to_wide("open",, temp);
-        ShellExecuteW(null, verb_wide, path_wide, null, null, 1);
     }
+
+    // Shared fallback
+    verb_wide := utf8_to_wide("open",, temp);
+    ShellExecuteW(null, verb_wide, path_wide, null, null, 1);
 }
 
 platform_path_equals :: inline (path_a: string, path_b: string) -> bool {
