@@ -728,6 +728,9 @@ ADDED_KEYBINDS :: Added_Keybind.[
     .{ 18, "editors", "reopen_closed_editor",                       "Ctrl-Shift-T",                 "Cmd-Shift-T" },
 
     .{ 23, "editors", "keep_editor",                                "Ctrl-Alt-S Enter",             "Cmd-Opt-S Enter" },
+    .{ 26, "editors", "word_completion_next",                       "Ctrl-E",                       "Cmd-E"},
+    .{ 26, "editors", "word_completion_previous",                   "Ctrl-Q",                       "Cmd-Q"},
+    .{ 26, "editors", "word_completion_subword",                    "Ctrl-R",                       "Cmd-R"},
 ];
 
 RENAMED_KEYBINDS :: Renamed_Keybind.[

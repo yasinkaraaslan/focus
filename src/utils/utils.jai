@@ -472,6 +472,22 @@ is_all_whitespace :: (s: string) -> bool {
     return true;
 }
 
+find_index_from_right_nocase :: (s: string, substring: string, start_index := 0) -> s64 {
+    if !substring return -1;
+    x := s;
+    if start_index {
+        if start_index > s.count return -1; // assert?
+        x.count = start_index;
+    }
+
+    for < i: x.count-substring.count..0 {
+        t := slice(x, i, substring.count);
+        if equal_nocase(t, substring) return i;
+    }
+
+    return -1;
+}
+
 count_whitespace :: (bytes: Array(u8), start_offset: s32, max_offset: s32, spaces := " \t") -> count: s32 {
     subarray := to_view(bytes, start_offset, max_offset - start_offset);
     for subarray {
