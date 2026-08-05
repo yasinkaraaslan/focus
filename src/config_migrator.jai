@@ -2195,6 +2195,9 @@ Ctrl-Alt-D ArrowUp          duplicate_editor_top
 Ctrl-Alt-D ArrowDown        duplicate_editor_bottom
 Ctrl-Shift-T                reopen_closed_editor
 Ctrl-Alt-S Enter            keep_editor
+Ctrl-E                      word_completion_next
+Ctrl-Q                      word_completion_previous
+Ctrl-R                      word_completion_subword
 
 [open file dialog]
 Tab                         open_directory
