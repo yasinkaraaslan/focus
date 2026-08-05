@@ -185,6 +185,9 @@ active_editor_handle_event :: (editor: *Editor, buffer: *Buffer, event: Input.Ev
     enabled_whole_words := false;
 
     word_complete.should_abort = true;
+
+    // @Hack
+    if event.type == .KEYBOARD && event.key_code == .CTRL word_complete.should_abort = false;
     defer { if word_complete.should_abort && word_complete.active then word_complete_abort(); }
 
     handled = true;
