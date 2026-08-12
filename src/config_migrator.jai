@@ -533,6 +533,8 @@ ADDED_SETTINGS :: Added_Setting.[
     .{ 24, "show_tab_characters_in_selection",                   "true" },
 
     .{ 25, "line_endings",                                       "preserve  # options: lf, crlf, preserve" },
+
+    .{ 27, "switch_to_project_after_create",                      "true" },
 ];
 
 RENAMED_SETTINGS :: Renamed_Setting.[
@@ -865,6 +867,7 @@ RENAMED_KEYBINDS :: Renamed_Keybind.[
         "switch_to_left_editor",
         "switch_to_other_editor",
         "switch_to_project",
+        "create_new_project",
         "switch_to_right_editor",
         "toggle_case_sensitive",
         "toggle_comment",
@@ -1412,6 +1415,7 @@ closing_last_editor_should_exit_program:         false
 show_pane_numbers:                               false
 show_tab_characters_in_selection:                true
 line_endings:                                    preserve  # options: lf, crlf, preserve
+switch_to_project_after_create:                  true
 
 FOCUS_CONFIG
 
@@ -1563,6 +1567,7 @@ closing_last_editor_should_exit_program:         false
 show_pane_numbers:                               false
 show_tab_characters_in_selection:                true
 line_endings:                                    preserve  # options: lf, crlf, preserve
+switch_to_project_after_create:                  true
 
 FOCUS_CONFIG
 
@@ -1952,6 +1957,7 @@ closing_last_editor_should_exit_program:         false
 show_pane_numbers:                               false
 show_tab_characters_in_selection:                true
 line_endings:                                    preserve  # options: lf, crlf, preserve
+switch_to_project_after_create:                  true
 
 [[keymap]]
 # ...

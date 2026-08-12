@@ -28,6 +28,7 @@ ACTIONS_COMMON :: string.[
 
     "open_project",
     "switch_to_project",
+    "create_new_project",
     "close_project",
     "reload_workspace",
 

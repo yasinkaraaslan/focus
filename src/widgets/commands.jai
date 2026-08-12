@@ -126,6 +126,7 @@ base_commands := #run -> [] Command {
         cmd( "Switch Between Open Files" ,        .switch_between_open_files,        .None   ),
 
         cmd( "Switch To Project",                 .switch_to_project,                .None   ),
+        cmd( "Create New Project",                .create_new_project,               .None   ),
         cmd( "Close Project",                     .close_project,                    .None   ),
         cmd( "Reload Workspace",                  .reload_workspace,                 .None   ),
         cmd( "Open Directory With Project Files", .open_projects_directory,          .None   ),

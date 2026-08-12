@@ -303,6 +303,7 @@ main :: () {
                 case .delete_file_dialog;           handled = dialog_handle_event(*delete_file_dialog, event);
                 case .go_to_line_dialog;            handled = go_to_line_dialog_handle_event(event);
                 case .switch_to_project_dialog;     handled = switch_to_project_dialog_handle_event(event);
+                case .create_new_project_dialog;    handled = create_new_project_dialog_handle_event(event);
                 case .unsaved_buffers_dialog;       handled = dialog_handle_event(*unsaved_buffers_dialog, event);
                 case .confirm_overwrite_dialog;     handled = dialog_handle_event(*confirm_overwrite_dialog, event);
                 case .commands_dialog;              handled = dialog_handle_event(*commands_dialog, event);
@@ -389,6 +390,7 @@ handle_common_editor_action :: (action: Action_Editors, placement: Editor_Placem
 
         case .open_project;                                     print("UNIMPLEMENTED\n");  /* !!!!!!!!!!!! */       return true;
         case .switch_to_project;                                show_dialog(*switch_to_project_dialog);             return true;
+        case .create_new_project;                               show_create_new_project_dialog();                   return true;
         case .close_project;                                    close_project();                                    return true;
         case .reload_workspace;                                 defer_action_reload_workspace(automatic = false);   return true;
 
@@ -969,6 +971,7 @@ Active_Global_Widget :: enum {
     go_to_line_dialog;
     commands_dialog;
     switch_to_project_dialog;
+    create_new_project_dialog;
     unsaved_buffers_dialog;
     confirm_overwrite_dialog;
     kill_running_command_dialog;
@@ -1054,6 +1057,7 @@ focus_allocator: Allocator;
 #load "widgets/unsaved_buffers.jai";
 #load "widgets/commands.jai";
 #load "widgets/switch_to_project.jai";
+#load "widgets/create_new_project_dialog.jai";
 #load "widgets/confirm_overwrite.jai";
 #load "widgets/kill_running_command.jai";
 #load "widgets/theme_dialog.jai";

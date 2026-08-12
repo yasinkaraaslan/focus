@@ -56,6 +56,7 @@ draw_frame :: () {
         case .finder;                           draw_finder();
         case .go_to_line_dialog;                draw_go_to_line_dialog(active_editor_rect);
         case .switch_to_project_dialog;         draw_switch_to_project_dialog();
+        case .create_new_project_dialog;        draw_create_new_project_dialog();
         case .unsaved_buffers_dialog;           draw_unsaved_buffers_dialog();
         case .confirm_overwrite_dialog;         draw_confirm_overwrite_dialog();
         case .commands_dialog;                  draw_commands_dialog();
@@ -3090,6 +3091,31 @@ draw_switch_to_project_dialog :: () {
     draw_generic_choice_dialog(*switch_to_project_dialog, Ui_Id.switch_to_project_dialog, label, draw_extra_entry_stuff);
 }
 
+draw_create_new_project_dialog :: () {
+    input_id := get_ui_id_from_loc();
+
+    margin  := floor(12 * dpi_scale);
+    padding := floor( 4 * dpi_scale);
+
+    label_text := "Create new project";
+    label_width := cast(float) Simp.prepare_text(font_ui, label_text);
+    input_rect_height := font_ui_line_height + 2 * padding + 2 * margin + 2;
+
+    width  := floor(clamp(screen.w * 0.4, 400 * dpi_scale, 1500 * dpi_scale));
+    height := input_rect_height;
+    x := floor((screen.w - width) / 2);
+    y := floor(clamp(100 * dpi_scale, 0, (screen.h - height) / 2));
+    bar_rect := make_rect(x, screen.h - height - y, width, height);
+
+    maybe_set_hot_or_active(input_id, bar_rect, .NORMAL);
+
+    input_rect := shrink(bar_rect, margin);
+
+    draw_rounded_rect_with_shadow(bar_rect, Color.BACKGROUND_3, radius = rounding_radius_large, extra_draw_info = .{is_background = true});
+
+    draw_text_input(*create_new_project_dialog.input, input_rect, ui_id = input_id, active = true, label = " Create new project");
+}
+
 draw_theme_dialog :: () {
     label := ifx theme_dialog.filtered then " Choose theme" else tprint(" No themes found in %", themes_dir);
     draw_generic_choice_dialog(*theme_dialog, Ui_Id.theme_dialog, label);
@@ -4474,6 +4500,7 @@ Ui_Id :: enum s64 {
     unsaved_buffers             :: -10;
     commands_dialog             :: -11;
     switch_to_project_dialog    :: -12;
+    create_new_project_dialog   :: -13;
     build_panel_title_bar       :: -15;
     color_preview_title_bar     :: -16;
     theme_dialog                :: -17;

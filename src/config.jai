@@ -1,6 +1,6 @@
 // Increment this if your PR adds a setting, color or default keybinding (and amend the relevant array
 // in config_migrator.jai).  You don't need to increase it for each such change; once per PR is best.
-CURRENT_CONFIG_VERSION :: 26;
+CURRENT_CONFIG_VERSION :: 27;
 
 load_global_config :: (fallback_to_default_on_failure := false, force := false) -> success: bool, changed: bool, there_were_warnings: bool {
     config_path := tprint("%/global.focus-config", config_dir);
@@ -786,6 +786,7 @@ Settings :: struct {
     build_panel_stays_in_one_place                          := false;   @v2
     build_panel_line_wrap_always_on                         := true;    @v2
     projects_sorting_order                                  := Projects_Sorting_Order.most_recent_first;    @v6
+    switch_to_project_after_create                          := true;    @v27
     color_preview_popup                                     := Color_Preview_Popup.enabled;                 @v5
     save_current_buffer_on_build                            := false;   @v3
     save_all_file_backed_buffers_on_build                   := false;   @v3

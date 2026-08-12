@@ -10,8 +10,11 @@ execute_deferred_actions :: () {
     }
 }
 
-defer_action_switch_to_project :: (path: string) {
+defer_action_switch_to_project :: (path: string, open_file_after := "") {
     clear_action_queue();
+    if open_file_after {
+        push_action(.open_file, .{ type = .open_file, open_file = .{ path = copy_string(open_file_after) } });
+    }
     push_action(.reload_workspace, .{ type = .reload_workspace, reload_workspace = .{ automatic = false } });
     push_action(.load_project_config, .{ type = .load_project_config, load_project_config = .{ path = copy_string(path) } });
     push_action(.abort_workspace_scanning);
@@ -140,6 +143,7 @@ execute_top_action :: () -> Action_Result {
         case .load_project_config;                      return execute_load_project_config(action);
         case .close_project;                            return execute_close_project(action);
         case .refresh_config_or_theme;                  return execute_refresh_config_or_theme(action);
+        case .open_file;                                return execute_open_file(action);
         case .reload_workspace;                         return execute_reload_workspace(action);
         case .build_command;                            return execute_build_command(action);
         case .abort_workspace_scanning;                 return execute_abort_workspace_scanning(action);
@@ -163,6 +167,10 @@ remove_top_action :: () {
 
         case .refresh_config_or_theme;
             using action.details.refresh_config_or_theme;
+            if path { free(path); path = ""; }
+
+        case .open_file;
+            using action.details.open_file;
             if path { free(path); path = ""; }
 
         case .confirm_overwrite;
@@ -212,6 +220,7 @@ Deferred_Action :: struct {
         load_project_config;
         reload_workspace;
         refresh_config_or_theme;
+        open_file;
         build_command;
         close_editor;
         close_editors_for_pane;
@@ -226,6 +235,7 @@ Deferred_Action :: struct {
         .load_project_config    ,, load_project_config:     struct { path: string; }
         .reload_workspace       ,, reload_workspace:        struct { automatic: bool; }
         .refresh_config_or_theme,, refresh_config_or_theme: struct { path: string; }
+        .open_file              ,, open_file:               struct { path: string; }
         .build_command          ,, build_command:           struct { command_id: s64; }
         .close_editor           ,, close_editor:            struct { editor_id: s64; }
         .close_editors_for_pane ,, close_editors_for_pane:  struct { pane: *Editor_Pane; except: s64; notify: bool; }
@@ -244,6 +254,7 @@ Deferred_Action :: struct {
         close_project;
         reload_workspace;
         refresh_config_or_theme;
+        open_file;
         abort_workspace_scanning;
         wait_for_workspace_scanning_to_finish;
         wait_for_killed_command_to_stop;
@@ -483,7 +494,7 @@ execute_refresh_config_or_theme :: (action: Deferred_Action) -> Action_Result {
 
 execute_reload_workspace :: (action: Deferred_Action) -> Action_Result {
     reload_workspace(action.details.reload_workspace.automatic);
-    return .CANCEL;  // final command
+    return .DONE;
 }
 
 execute_build_command :: (action: Deferred_Action) -> Action_Result {
@@ -543,6 +554,11 @@ execute_close_editors_for_pane :: (action: Deferred_Action) -> Action_Result {
 
 execute_close_all_editors :: (action: Deferred_Action) -> Action_Result {
     close_all_editors();
+    return .DONE;
+}
+
+execute_open_file :: (action: Deferred_Action) -> Action_Result {
+    editors_open_file(action.details.open_file.path);
     return .DONE;
 }
 
