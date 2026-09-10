@@ -126,7 +126,7 @@ ld_xkb_state_set_mods :: inline (d: *Base_Display,
 }
 
 ld_xkb_state_set_mods :: inline (d: *Base_Display, depressed: u32, latched: u32, locked: u32, group: u32) #c_call {
-    ld_xkb_state_set_mods(d, depressed, latched, locked, group, group, group);
+    ld_xkb_state_set_mods(d, depressed, latched, locked, 0, 0, group);
 }
 
 ld_xkb_state_apply_mods :: inline (d: *Base_Display) #c_call {
