@@ -309,8 +309,7 @@ registry_listener :: wl_registry_listener.{
 
 data_offer_listener :: wl_data_offer_listener.{
     offer = (data: *void, self: *wl_data_offer, mime_type: *u8) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             d : *Wayland_Display = wl_proxy_get_user_data(self);
             mime_s := to_string(mime_type);
             array_add(*d.data_offer_mime_types, copy_string(mime_s));
@@ -320,8 +319,7 @@ data_offer_listener :: wl_data_offer_listener.{
 
 data_device_listener :: wl_data_device_listener.{
     data_offer = (data: *void, self: *wl_data_device, id: *wl_data_offer) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             d : *Wayland_Display = wl_proxy_get_user_data(self);
 
             for d.data_offer_mime_types free(it);
@@ -337,8 +335,7 @@ data_device_listener :: wl_data_device_listener.{
     enter = (data: *void, self: *wl_data_device, serial: u32, surface: *wl_surface,
         x: wl_fixed_t, y: wl_fixed_t, id: *wl_data_offer) -> void #c_call
     {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             d: *Wayland_Display = wl_proxy_get_user_data(self);
             has_file_list := data_offer_has_mime_type(d, MIME_TYPE_FILE_LIST);
 
@@ -367,16 +364,14 @@ data_device_listener :: wl_data_device_listener.{
     },
 
     leave = (data: *void, self: *wl_data_device) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             d: *Wayland_Display = wl_proxy_get_user_data(self);
             data_offer_reset(d);
         }
     },
 
     motion = (data: *void, self: *wl_data_device, time: u32, x: wl_fixed_t, y: wl_fixed_t) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             d: *Wayland_Display = wl_proxy_get_user_data(self);
 
             if !d.data_offer return;
@@ -387,8 +382,7 @@ data_device_listener :: wl_data_device_listener.{
     },
 
     drop = (data: *void, self: *wl_data_device) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             d: *Wayland_Display = wl_proxy_get_user_data(self);
 
             if !d.data_offer return;
@@ -438,14 +432,19 @@ data_device_listener :: wl_data_device_listener.{
     },
 
     selection = (data: *void, self: *wl_data_device, id: *wl_data_offer) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             d : *Wayland_Display = wl_proxy_get_user_data(self);
 
             d.data_offer = id;
             reset(*d.current_text_selection);
 
             if !id return;
+
+            if d.clipboard_source {
+                append(*d.current_text_selection, d.clipboard_send_data);
+                data_offer_reset(d);
+                return;
+            }
 
             if data_offer_has_mime_type(d, MIME_TYPE_TEXT) {
                 data_offer_read_data(d, MIME_TYPE_TEXT, *d.current_text_selection);
@@ -465,14 +464,41 @@ wl_clipboard_get_text :: (display: *Display) -> string {
 
 data_source_listener :: wl_data_source_listener.{
     send = (data: *void, self: *wl_data_source, mime_type: *u8, fd: s32) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             defer close(fd);
             d: *Wayland_Display = wl_proxy_get_user_data(self);
             if MIME_TYPE_TEXT != to_string(mime_type) return;
-            write(fd, d.clipboard_send_data.data, xx d.clipboard_send_data.count);
+
+            old_flags := fcntl(fd, F_GETFL, 0);
+            fcntl(fd, F_SETFL, old_flags | O_NONBLOCK);
+
+            ptr       := d.clipboard_send_data.data;
+            remaining := d.clipboard_send_data.count;
+            while remaining > 0 {
+                pfd: pollfd;
+                pfd.fd     = fd;
+                pfd.events = POLLOUT;
+                result := poll(*pfd, 1, 200);  // 200 ms timeout
+                if result <= 0 break;
+                if !(pfd.revents & POLLOUT) break;
+
+                n := write(fd, ptr, xx remaining);
+                if n <= 0 break;
+                ptr       += n;
+                remaining -= n;
+            }
         }
-    }
+    },
+
+    cancelled = (data: *void, self: *wl_data_source) -> void #c_call {
+        push_context {
+            d: *Wayland_Display = wl_proxy_get_user_data(self);
+            wl_data_source.destroy(d.clipboard_source);
+            d.clipboard_source = null;
+            free(d.clipboard_send_data);
+            d.clipboard_send_data = .{};
+        }
+    },
 };
 
 wl_clipboard_set_text :: (display: *Display, text: string) {
@@ -505,8 +531,7 @@ x_window_listener :: xdg_surface_listener.{
 
 x_toplevel_listener :: xdg_toplevel_listener.{
     configure = (data: *void, toplevel: *xdg_toplevel, width: s32, height: s32, states: *wl_array) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             w: *Wayland_Window = wl_proxy_get_user_data(toplevel);
 
             if !(w.native_state & .xdg_toplevel_configured) {
@@ -532,8 +557,7 @@ x_toplevel_listener :: xdg_toplevel_listener.{
     },
 
     close = (data: *void, toplevel: *xdg_toplevel) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             w: *Wayland_Window = wl_proxy_get_user_data(toplevel);
             d := w.display;
             event: Input.Event;
@@ -567,8 +591,7 @@ wl_get_dpi_scaling_factor :: (window: *Window) -> float {
 
 fractional_scale_listener :: wp_fractional_scale_v1_listener.{
     preferred_scale = (data: *void, self: *wp_fractional_scale_v1, scale: u32) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             w: *Wayland_Window = data;
             w.fractional_scale = xx scale;
             wl_window_handle_resize(w, w.window_width, w.window_height);
@@ -802,6 +825,9 @@ data_offer_read_data :: (d: *Wayland_Display, mime_type: string, sb: *String_Bui
     pipe: [2]s32;
     pipe2(*pipe, O_CLOEXEC);
 
+    read_flags := fcntl(pipe[0], F_GETFL, 0);
+    fcntl(pipe[0], F_SETFL, read_flags | O_NONBLOCK);
+
     /*
      * EXTREMELY important:
      *    we want to `wl_display_flush()` after `wl_data_offer.receive()` NOT `wl_display_roundtrip()`.
@@ -813,11 +839,18 @@ data_offer_read_data :: (d: *Wayland_Display, mime_type: string, sb: *String_Bui
     close(pipe[1]);
 
     ptr := ensure_contiguous_space(sb, DATA_OFFER_READ_SIZE);
-    count := read(pipe[0], ptr, DATA_OFFER_READ_SIZE);
-    while count > 0 {
+    while true {
+        pfd: pollfd;
+        pfd.fd     = pipe[0];
+        pfd.events = POLLIN;
+        result := poll(*pfd, 1, 200);  // 200 ms timeout
+        if result <= 0 break;
+        if !(pfd.revents & POLLIN) break;
+
+        count := read(pipe[0], ptr, DATA_OFFER_READ_SIZE);
+        if count <= 0 break;
         advance_through_ensured_space(sb, count);
         ptr = ensure_contiguous_space(sb, DATA_OFFER_READ_SIZE);
-        count = read(pipe[0], ptr, DATA_OFFER_READ_SIZE);
     }
 
     close(pipe[0]);
@@ -837,6 +870,9 @@ data_offer_read_data :: (d: *Wayland_Display, mime_type: string, dst: *[..]u8) {
     pipe: [2]s32;
     pipe2(*pipe, O_CLOEXEC);
 
+    read_flags := fcntl(pipe[0], F_GETFL, 0);
+    fcntl(pipe[0], F_SETFL, read_flags | O_NONBLOCK);
+
     /*
      * EXTREMELY important:
      *    we want to `wl_display_flush()` after `wl_data_offer.receive()` NOT `wl_display_roundtrip()`.
@@ -848,12 +884,19 @@ data_offer_read_data :: (d: *Wayland_Display, mime_type: string, dst: *[..]u8) {
     close(pipe[1]);
 
     buff: [4096]u8;
-    count := read(pipe[0], buff.data, buff.count);
-    while count > 0 {
+    while true {
+        pfd: pollfd;
+        pfd.fd     = pipe[0];
+        pfd.events = POLLIN;
+        result := poll(*pfd, 1, 200);  // 200 ms timeout
+        if result <= 0 break;
+        if !(pfd.revents & POLLIN) break;
+
+        count := read(pipe[0], buff.data, buff.count);
+        if count <= 0 break;
         old_count := dst.count;
         array_resize(dst, old_count + count, false);
         memcpy(dst.data + old_count, buff.data, count);
-        count = read(pipe[0], buff.data, buff.count);
     }
 
     close(pipe[0]);

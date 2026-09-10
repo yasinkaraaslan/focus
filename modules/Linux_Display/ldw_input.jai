@@ -2,8 +2,7 @@
 
 keyboard_listenter :: wl_keyboard_listener.{
     keymap = (data: *void, self: *wl_keyboard, format: u32, fd: s32, size: u32) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             if format == wl_keyboard.keymap_format_xkb_v1 {
                 keymap := mmap(null, size, PROT_READ, MAP_PRIVATE, fd, 0);
                 defer munmap(keymap, size);
@@ -19,8 +18,7 @@ keyboard_listenter :: wl_keyboard_listener.{
     },
 
     enter = (data: *void, self: *wl_keyboard, serial: u32, surface: *wl_surface, keys: *wl_array) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             Input.input_application_has_focus = true;
             d: *Wayland_Display = wl_proxy_get_user_data(self);
             array_add(*d.base.events_this_frame, .{type=.WINDOW});
@@ -28,8 +26,7 @@ keyboard_listenter :: wl_keyboard_listener.{
     },
 
     leave = (data: *void, self: *wl_keyboard, serial: u32, surface: *wl_surface) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             d: *Wayland_Display = wl_proxy_get_user_data(self);
             Input.input_application_has_focus = false;
             array_add(*d.base.events_this_frame, .{type=.WINDOW});
@@ -38,8 +35,7 @@ keyboard_listenter :: wl_keyboard_listener.{
     },
 
     key = (data: *void, self: *wl_keyboard, serial: u32, time: u32, key: u32, state: u32) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             d: *Wayland_Display = wl_proxy_get_user_data(self);
             if !d.base.xkb_state.kb_state return;
 
@@ -61,8 +57,7 @@ keyboard_listenter :: wl_keyboard_listener.{
     modifiers = (data: *void, self: *wl_keyboard, serial: u32,
         mods_depressed: u32, mods_latched: u32, mods_locked: u32, group: u32) -> void #c_call
     {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             d: *Wayland_Display = wl_proxy_get_user_data(self);
             ld_xkb_state_set_mods(d, mods_depressed, mods_latched, mods_locked, group);
             array_add(*d.base.events_this_frame, .{type=.WINDOW});
@@ -118,8 +113,7 @@ pointer_listener :: wl_pointer_listener.{
     enter = (data: *void, self: *wl_pointer, serial: u32, surface: *wl_surface,
         surface_x: wl_fixed_t, surface_y: wl_fixed_t) -> void #c_call
     {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             d: *Wayland_Display = wl_proxy_get_user_data(self);
             d.current_hovered_window = wl_surface.get_user_data(surface);
             d.current_hovered_window.enter_serial = serial;
@@ -129,8 +123,7 @@ pointer_listener :: wl_pointer_listener.{
     },
 
     leave = (data: *void, self: *wl_pointer, serial: u32, surface: *wl_surface) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             d: *Wayland_Display = wl_proxy_get_user_data(self);
             d.current_hovered_window = null;
             array_add(*d.base.events_this_frame, .{type=.WINDOW});
@@ -138,8 +131,7 @@ pointer_listener :: wl_pointer_listener.{
     },
 
     motion = (data: *void, self: *wl_pointer, time: u32, fx: wl_fixed_t, fy: wl_fixed_t) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             d: *Wayland_Display = wl_proxy_get_user_data(self);
             if d.current_hovered_window != null {
                 m_x := wl_fixed_to_int(fx);
@@ -174,8 +166,7 @@ pointer_listener :: wl_pointer_listener.{
             d.base.input_button_states[event.key_code] = Input.Key_Current_State.END;
         }
 
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             array_add(*d.base.events_this_frame, event);
         }
 
@@ -183,8 +174,7 @@ pointer_listener :: wl_pointer_listener.{
     },
 
     axis = (data: *void, self: *wl_pointer, time: u32, axis: u32, value: wl_fixed_t) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             d: *Wayland_Display = wl_proxy_get_user_data(self);
             delta := wl_fixed_to_double(value);
             delta_with_multiplier := -delta * 6;
@@ -196,8 +186,7 @@ pointer_listener :: wl_pointer_listener.{
     },
 
     frame = (data: *void, self: *wl_pointer) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             d: *Wayland_Display = wl_proxy_get_user_data(self);
             event: Input.Event;
             if d.pointer_axis_accumulator[0] {
@@ -224,8 +213,7 @@ pointer_listener :: wl_pointer_listener.{
     axis_discrete = (data: *void, self: *wl_pointer, axis: u32, discrete: s32) -> void #c_call {},
 
     axis_value120 = (data: *void, self: *wl_pointer, axis: u32, value120: s32) -> void #c_call {
-        ctx: #Context;
-        push_context ctx {
+        push_context {
             d: *Wayland_Display = wl_proxy_get_user_data(self);
             if !d.pointer_axis_accumulator[axis] {
                 d.pointer_axis_accumulator[axis] = d.pointer_axis_multiplier[axis] * value120;
