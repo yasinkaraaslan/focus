@@ -222,7 +222,7 @@ maybe_mark_as_keyword :: inline (token: *Token, identifier_str: string) -> is_ke
     ok, kw_token := table_find(*KEYWORD_MAP, identifier_str);
     if ok {
         token.type = kw_token.type;
-        token.keyword = kw_token.keyword;;
+        token.keyword = kw_token.keyword;
         return true;
     }
     return false;
@@ -237,6 +237,9 @@ parse_identifier_or_keyword :: (using tokenizer: *Jai_Tokenizer, token: *Token, 
     // Maybe it's a keyword
     is_keyword := maybe_mark_as_keyword(token, identifier_str);
     if !is_keyword return;
+
+    // Check if we can check for modifiers
+    if !array_find(Keyword.[.kw_using, .kw_cast, .kw_xx, .kw_push_context], token.keyword) return;
 
     // Check for modifiers
     while true {
@@ -281,7 +284,7 @@ parse_identifier_keyword_or_function :: (using tokenizer: *Jai_Tokenizer, token:
     parse_identifier_or_keyword(tokenizer, token, buffer);
     defer highlight(tokenizer, token, buffer);
 
-    if token.type == .keyword return;
+    if token.type != .identifier return;
 
     // Maybe it's a function call or a function definition
     next_token := start_new_token(tokenizer);
