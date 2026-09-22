@@ -5042,6 +5042,7 @@ word_complete_search :: () {
     // hmm...
     UNDERSCORE_PENALTY     :: 1000000000;
     CASE_SENSITIVE_PENALTY :: 100000000;
+    OTHER_BUFFER_PENALTY   :: 10000000;
 
     editor, buffer := get_active_editor_and_buffer();
 
@@ -5050,8 +5051,6 @@ word_complete_search :: () {
     left  := scan_through_similar_chars_on_the_left(buffer, cursor.pos, Char_Type.word, skip_one_space = false);
     start_subword := get_range_as_string(buffer, Offset_Range.{left, right});
     if start_subword.count == 0 then return;
-
-    buffer_str := to_string(buffer.bytes);
 
     add_new_result_or_update_delta :: inline (new_result: string, delta: s64) {
         if word_complete.search_for_subwords {
@@ -5075,37 +5074,55 @@ word_complete_search :: () {
         array_add(*word_complete.results, result);
     }
 
-    pos := 0;
-    while pos != buffer_str.count-1 {
-        pos = find_index_from_left_nocase(buffer_str, start_subword, pos);
-        if pos == -1 break;
+    search_in_buffer :: (buffer_str: string, skip_left: s32, skip_right: s32, extra_delta: s64) #expand {
+        if buffer_str.count <= 1 return;
 
-        defer pos += start_subword.count;
-        if pos == left || (pos > 0 && is_word_char(buffer_str[pos-1])) {
-            // Exclude results that are part of another word. For instance, if your subword is 'ine' and you have a word like 'wine' elsewhere, it will not include the result 'ine' from 'w[ine]'.
-            continue;
-        }
+        pos := 0;
+        while pos != buffer_str.count-1 {
+            pos = find_index_from_left_nocase(buffer_str, start_subword, pos);
+            if pos == -1 break;
 
-        for i: pos..buffer_str.count-1 {
-            c := buffer_str[i];
-            if !is_word_char(c) || i == buffer_str.count-1 {
-                is_subword := c == #char "_";
+            defer pos += start_subword.count;
+            if pos == skip_left || (pos > 0 && is_word_char(buffer_str[pos-1])) {
+                // Exclude results that are part of another word. For instance, if your subword is 'ine' and you have a word like 'wine' elsewhere, it will not include the result 'ine' from 'w[ine]'.
+                continue;
+            }
 
-                s := advance(buffer_str, pos);
-                s.count = i - pos;
-                if s != start_subword {
-                    // Now, we're going left to right, so the distance between the word and the cursor will
-                    // always be closer than in right-to-left searching; thus, we need to apply some corrections to it.
-                    cursor_delta := cursor.pos - pos;
-                    if pos >= right then cursor_delta = i - cursor.pos;
-                    if is_upper(start_subword[0]) != is_upper(buffer_str[pos]) then cursor_delta += CASE_SENSITIVE_PENALTY;
-                    add_new_result_or_update_delta(s, cursor_delta);
+            for i: pos..buffer_str.count-1 {
+                c := buffer_str[i];
+                if !is_word_char(c) || i == buffer_str.count-1 {
+                    is_subword := c == #char "_";
+
+                    s := advance(buffer_str, pos);
+                    s.count = i - pos;
+                    if s != start_subword {
+                        // Now, we're going left to right, so the distance between the word and the cursor will
+                        // always be closer than in right-to-left searching; thus, we need to apply some corrections to it.
+                        cursor_delta := extra_delta;
+                        if skip_left >= 0 {
+                            cursor_delta += cursor.pos - pos;
+                            if pos >= skip_right then cursor_delta = extra_delta + (i - cursor.pos);
+                        }
+                        if is_upper(start_subword[0]) != is_upper(buffer_str[pos]) then cursor_delta += CASE_SENSITIVE_PENALTY;
+                        add_new_result_or_update_delta(s, cursor_delta);
+                    }
+
+                    if !is_subword then break;
                 }
-
-                if !is_subword then break;
             }
         }
+    }
 
+    search_in_buffer(to_string(buffer.bytes), left, right, extra_delta = 0);
+
+    for buffer_id : most_recent_buffers {
+        if buffer_id == editor.buffer_id continue;
+
+        other := *open_buffers[buffer_id];
+        if other.internal || other.binary continue;
+        if other.deleted && !other.modified continue;
+
+        search_in_buffer(to_string(other.bytes), skip_left = -1, skip_right = -1, extra_delta = OTHER_BUFFER_PENALTY);
     }
 
     if !word_complete.results.count then return;
