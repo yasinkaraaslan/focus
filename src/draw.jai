@@ -2299,6 +2299,14 @@ draw_status_bar :: (using editor: Editor, buffer: Buffer, pane: *Editor_Pane, ed
         file_info_offset = pen.x - pen_x_old;
     }
 
+    if config.settings.vim_mode {
+        label := "NORMAL";
+        if vim.mode == .Insert then label = "INSERT";
+        if vim.mode == .Visual then label = "VISUAL";
+        width = xx Simp.draw_text(font_ui_bold, xx pen.x, xx pen.y, tprint("[%] ", label), xx Color.UI_DEFAULT);
+        pen.x += width + padding;
+    }
+
     // Draw file name and path
     is_temporary_editor := pane.editor_index == pane.temporary_editor_index && config.settings.enable_temporary_editors;
     font_variant := ifx is_temporary_editor then File_Info_Font_Variant.bold_italic else File_Info_Font_Variant.bold;

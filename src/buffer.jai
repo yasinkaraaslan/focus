@@ -323,6 +323,26 @@ get_real_line_range :: inline (buffer: Buffer, line: s32) -> Offset_Range {
     return .{ start = get_real_line_start_offset(buffer, line), end = get_real_line_end_offset(buffer, line) };
 }
 
+// Byte ranges preserve the exact tabs and spaces; callers choose their cursor policy.
+get_real_line_indentation :: (buffer: Buffer, line: s32) -> Offset_Range {
+    range := get_real_line_range(buffer, line);
+    return .{range.start, range.start + count_whitespace(buffer.bytes, range.start, range.end)};
+}
+
+get_first_nonblank_offset :: (buffer: Buffer, offset: s32) -> s32 {
+    indent := get_real_line_indentation(buffer, offset_to_real_line(buffer, offset));
+    return indent.end;
+}
+
+get_previous_line_indentation :: (buffer: Buffer, line: s32) -> string {
+    while line > 0 {
+        line -= 1;
+        indent := get_real_line_indentation(buffer, line);
+        if indent.end < get_real_line_end_offset(buffer, line) return get_range_as_string(buffer, indent);
+    }
+    return "";
+}
+
 get_real_line_start_offset :: inline (using buffer: Buffer, line: s32) -> s32 {
     return line_starts[clamp(line, 0, cast(s32) line_starts.count - 1)];
 }

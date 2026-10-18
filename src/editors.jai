@@ -3,6 +3,43 @@
 
 editors_handle_event :: (event: Input.Event) -> handled: bool {
     mods := event.modifier_flags;
+    editor, buffer := get_active_editor_and_buffer();
+    if config.settings.vim_mode && editor && !editor.search_bar.active {
+        if event.type == .TEXT_INPUT && editor.vim.mode != .Insert {
+            vim_handle_char(editor, buffer, event.utf32);
+            return true;
+        }
+        if event.type == .KEYBOARD && event.key_pressed {
+            if event.key_code == .ESCAPE || (mods.ctrl_pressed && event.key_code == #char "[") {
+                vim_enter_normal(editor, buffer);
+                return true;
+            }
+            if editor.vim.find_command && event.text_input_count == 0 &&
+               event.key_code != .SHIFT && event.key_code != .CTRL && event.key_code != .ALT && event.key_code != .CMD {
+                if event.key_code == .TAB {
+                    vim_handle_char(editor, buffer, #char "\t");
+                    return true;
+                }
+                if event.key_code == .ENTER || event.key_code == .NUMPAD_ENTER || event.key_code == .BACKSPACE {
+                    // A non-text target must not fall through to an editing shortcut.
+                    vim_handle_char(editor, buffer, #char "\n");
+                    return true;
+                }
+                editor.vim.find_command = 0;
+                editor.vim.find_operator = 0;
+                editor.vim.find_count = 0;
+            }
+            if editor.vim.mode != .Insert {
+                if mods.ctrl_pressed && !mods.alt_pressed && !mods.cmd_meta_pressed && event.key_code == #char "R" {
+                    vim_action(editor, buffer, .redo);
+                    return true;
+                }
+                // Printable commands are interpreted from text input, respecting the keyboard layout.
+                if event.text_input_count > 0 && !mods.ctrl_pressed && !mods.alt_pressed && !mods.cmd_meta_pressed return false;
+            }
+        }
+    }
+
 
     if event.type == {
         case .KEYBOARD;
@@ -983,7 +1020,7 @@ go_to_line :: (editor: *Editor, buffer: Buffer, line: s64, col: s32 = -1) {
 
     cursor := leave_only_original_cursor(editor);
     if col < 0 {
-        cursor.pos = line_start + count_whitespace(buffer.bytes, line_start, line_end);
+        cursor.pos = get_first_nonblank_offset(buffer, line_start);
         cursor.sel = line_end;  // to make the line visible
     } else {
         cursor.pos = line_start + count_bytes_knowing_number_of_chars(buffer.bytes, line_start, line_end, col - 1);
@@ -3388,17 +3425,8 @@ move_cursors_by_page :: (editor: *Editor, buffer: Buffer, dir: enum { up; down; 
 move_cursors_home :: (editor: *Editor, buffer: Buffer) {
     for * cursor : editor.cursors {
         line := offset_to_real_line(buffer, cursor.pos);
-        start, end := get_real_line_start_offset(buffer, line), get_real_line_end_offset(buffer, line);
-
-        text_start_col: s32 = 0;
-        i := start;
-        while i < end {
-            byte := buffer.bytes[i];
-            if byte != #char " " && byte != #char "\t" break;
-            text_start_col += 1;
-            i += 1 + trailingBytesForUTF8[byte];
-        }
-        if cursor.pos > i || cursor.pos == start then cursor.pos = i; else cursor.pos = start;
+        indent := get_real_line_indentation(buffer, line);
+        cursor.pos = ifx cursor.pos > indent.end || cursor.pos == indent.start then indent.end else indent.start;
         cursor.col_wanted = -1;
     }
 
@@ -3458,9 +3486,8 @@ break_line :: (editor: *Editor, buffer: *Buffer) {
     space_per_cursor := NewArray(editor.cursors.count, Space, initialized = false,, allocator = temp);
     for cursor : editor.cursors {
         selection := get_selection(cursor);
-        start := get_real_line_start_offset(buffer, offset_to_real_line(buffer, selection.start));
-        whitespace_bytes := count_whitespace(buffer.bytes, start, selection.start);
-        space_per_cursor[it_index] = .{ start = start, count = whitespace_bytes, original_start = start };
+        indent := get_real_line_indentation(buffer, offset_to_real_line(buffer, selection.start));
+        space_per_cursor[it_index] = .{ start = indent.start, count = min(indent.end, selection.start) - indent.start, original_start = indent.start };
     }
 
     offset_delta := 0;
@@ -3489,69 +3516,39 @@ break_line :: (editor: *Editor, buffer: *Buffer) {
     editor.cursor_moved = true;
 }
 
-new_line_below :: (editor: *Editor, buffer: *Buffer) {
+new_line_below :: (editor: *Editor, buffer: *Buffer) { insert_indented_line(editor, buffer, below = true); }
+new_line_above :: (editor: *Editor, buffer: *Buffer) { insert_indented_line(editor, buffer, below = false); }
+
+insert_indented_line :: (editor: *Editor, buffer: *Buffer, below: bool) {
     new_edit_group(buffer, editor);
 
-    Line_Info :: struct { end: s32; space: struct { start, count, original_start: s32; }; last_line: bool; };
+    Line_Info :: struct { offset: s32; space: struct { start, count, original_start: s32; }; last_line: bool; }
     line_info_per_cursor := NewArray(editor.cursors.count, Line_Info, initialized = false,, allocator = temp);
     for cursor : editor.cursors {
         selection := get_selection(cursor);
-        last_line := offset_to_real_line(buffer, selection.end);
-        start := get_real_line_start_offset(buffer, last_line);
-        end   := get_real_line_start_offset(buffer, last_line+1);
-        whitespace_bytes := count_whitespace(buffer.bytes, start, end);
-        line_info_per_cursor[it_index] = .{ end = end, space = .{ start = start, count = whitespace_bytes, original_start = start }, last_line = is_last_real_line(buffer, last_line) };
+        line := offset_to_real_line(buffer, ifx below then selection.end else selection.start);
+        indent := get_real_line_indentation(buffer, line);
+        offset := ifx below then get_real_line_start_offset(buffer, line+1) else indent.start;
+        line_info_per_cursor[it_index] = .{
+            offset = offset,
+            space = .{ start = indent.start, count = indent.end - indent.start, original_start = indent.start },
+            last_line = below && is_last_real_line(buffer, line),
+        };
     }
 
     offset_delta := 0;
     for * cursor : editor.cursors {
         line_info := *line_info_per_cursor[it_index];
         prev_line_info := line_info_per_cursor[max(it_index-1, 0)];
-        if line_info.space.original_start == prev_line_info.space.original_start then line_info.space.start = prev_line_info.space.start; else line_info.space.start += xx offset_delta;  // handle cursors on the same line well
-        line_info.end += xx offset_delta;
-        whitespace_str := cast(string) to_view(buffer.bytes, line_info.space.start, line_info.space.count);  // construct string from offsets to avoid memory errors on buffer reallocation
-        insert_str := ifx line_info.last_line then tprint("\n%\n", whitespace_str) else tprint("%\n", whitespace_str);
-
-        insert_string_at_offset(buffer, line_info.end, insert_str);
-
+        if line_info.space.original_start == prev_line_info.space.original_start then line_info.space.start = prev_line_info.space.start; else line_info.space.start += xx offset_delta;
+        line_info.offset += xx offset_delta;
+        whitespace := cast(string) to_view(buffer.bytes, line_info.space.start, line_info.space.count);
+        insert_str := ifx line_info.last_line then tprint("\n%\n", whitespace) else tprint("%\n", whitespace);
+        insert_string_at_offset(buffer, line_info.offset, insert_str);
         offset_delta += insert_str.count;
-        cursor.pos = line_info.end + xx insert_str.count - 1;
+        cursor.pos = line_info.offset + xx insert_str.count - 1;
         cursor.col_wanted = -1;
     }
-
-    editor.cursor_moved = true;
-}
-
-new_line_above :: (editor: *Editor, buffer: *Buffer) {
-    new_edit_group(buffer, editor);
-
-    Line_Info :: struct { start: s32; space: struct { start, count, original_start: s32; }; };
-    line_info_per_cursor := NewArray(editor.cursors.count, Line_Info, initialized = false,, allocator = temp);
-    for cursor : editor.cursors {
-        selection  := get_selection(cursor);
-        first_line := offset_to_real_line(buffer, selection.start);
-        start := get_real_line_start_offset(buffer, first_line);
-        end   := get_real_line_start_offset(buffer, first_line+1);
-        whitespace_bytes := count_whitespace(buffer.bytes, start, end);
-        line_info_per_cursor[it_index] = .{ start = start, space = .{ start = start, count = whitespace_bytes, original_start = start } };
-    }
-
-    offset_delta := 0;
-    for * cursor : editor.cursors {
-        line_info := *line_info_per_cursor[it_index];
-        prev_line_info := line_info_per_cursor[max(it_index-1, 0)];
-        if line_info.space.original_start == prev_line_info.space.original_start then line_info.space.start = prev_line_info.space.start; else line_info.space.start += xx offset_delta;  // handle cursors on the same line well
-        line_info.start += xx offset_delta;
-        whitespace_str := cast(string) to_view(buffer.bytes, line_info.space.start, line_info.space.count);  // construct string from offsets to avoid memory errors on buffer reallocation
-        insert_str := tprint("%\n", whitespace_str);
-
-        insert_string_at_offset(buffer, line_info.start, insert_str);
-
-        offset_delta += insert_str.count;
-        cursor.pos = line_info.start + xx insert_str.count - 1;
-        cursor.col_wanted = -1;
-    }
-
     editor.cursor_moved = true;
 }
 
@@ -5197,6 +5194,7 @@ Word_Result :: struct {
 word_complete: Word_Completion;
 
 Editor :: struct {
+    vim: Vim_State;
     buffer_id: s64;
 
     viewport:   Viewport;

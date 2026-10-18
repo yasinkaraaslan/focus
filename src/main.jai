@@ -1021,6 +1021,7 @@ focus_allocator: Allocator;
 #load "actions.jai";
 #load "layout.jai";
 #load "editors.jai";
+#load "vim.jai";
 #load "buffer.jai";
 #load "build_system.jai";
 #load "draw.jai";

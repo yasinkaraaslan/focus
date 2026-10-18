@@ -1,6 +1,6 @@
 // Increment this if your PR adds a setting, color or default keybinding (and amend the relevant array
 // in config_migrator.jai).  You don't need to increase it for each such change; once per PR is best.
-CURRENT_CONFIG_VERSION :: 27;
+CURRENT_CONFIG_VERSION :: 28;
 
 load_global_config :: (fallback_to_default_on_failure := false, force := false) -> success: bool, changed: bool, there_were_warnings: bool {
     config_path := tprint("%/global.focus-config", config_dir);
@@ -507,6 +507,11 @@ merge_configs :: (dst: *Config, parsed: Parsed_Config) {
 }
 
 apply_config :: () {
+    // A live configuration reload starts each pane in a predictable mode.
+    if !config.settings.vim_mode {
+        for * open_editors { it.vim = .{}; }
+    }
+
     clamp_and_warn :: (setting: *$T, min: T, max: T, message: string = "") {
         old := setting.*;
         clamped := clamp(old, min, max);
@@ -773,6 +778,7 @@ Settings :: struct {
     show_paste_effect                                       := true;    @v6
     line_height_scale_percent                               := 120;     @v1
     can_cancel_go_to_line                                   := true;    @v1
+    vim_mode                                                := false;   @v28
     hide_mouse_when_typing                                  := true;    @v1
     dark_titlebar                                           := false;   @v1
     colored_titlebar                                        := true;    @v1

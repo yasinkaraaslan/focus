@@ -535,6 +535,7 @@ ADDED_SETTINGS :: Added_Setting.[
     .{ 25, "line_endings",                                       "preserve  # options: lf, crlf, preserve" },
 
     .{ 27, "switch_to_project_after_create",                      "true" },
+    .{ 28, "vim_mode",                                           "false  # enable basic Vim Normal, Insert and Visual modes" },
 ];
 
 RENAMED_SETTINGS :: Renamed_Setting.[
@@ -1416,6 +1417,7 @@ show_pane_numbers:                               false
 show_tab_characters_in_selection:                true
 line_endings:                                    preserve  # options: lf, crlf, preserve
 switch_to_project_after_create:                  true
+vim_mode:                                        false  # enable basic Vim Normal, Insert and Visual modes
 
 FOCUS_CONFIG
 
@@ -1568,6 +1570,7 @@ show_pane_numbers:                               false
 show_tab_characters_in_selection:                true
 line_endings:                                    preserve  # options: lf, crlf, preserve
 switch_to_project_after_create:                  true
+vim_mode:                                        false  # enable basic Vim Normal, Insert and Visual modes
 
 FOCUS_CONFIG
 
@@ -1958,6 +1961,7 @@ show_pane_numbers:                               false
 show_tab_characters_in_selection:                true
 line_endings:                                    preserve  # options: lf, crlf, preserve
 switch_to_project_after_create:                  true
+vim_mode:                                        false  # enable basic Vim Normal, Insert and Visual modes
 
 [[keymap]]
 # ...
