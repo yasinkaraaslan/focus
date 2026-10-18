@@ -51,14 +51,16 @@ start_file_watcher :: () {
 }
 
 file_watcher_process_changes :: () {
+    if !watchers.initialized return;
+
     // Check for any changes to the files we care about
     array_reset_keeping_memory(*watchers.project_changes);
     array_reset_keeping_memory(*watchers.external_changes);
 
-    files_changed :=  process_changes(*watchers.project_watcher);
-    files_changed ||= process_changes(*watchers.external_watcher);
+    project_files_changed  := process_changes(*watchers.project_watcher);
+    external_files_changed := process_changes(*watchers.external_watcher);
 
-    if files_changed {
+    if project_files_changed || external_files_changed {
         using watchers;
 
         // TODO:
@@ -67,16 +69,20 @@ file_watcher_process_changes :: () {
 
         // Most commonly we will receive only a single MODIFIED event for a single file (after saving a buffer)
         // In this case we don't want to rescan anything, but only if no other events were received in the same frame
-        if project_changes.count == 1 && project_changes[0].events == .MODIFIED {
+        if project_changes.count == 1 && project_changes[0].events == .MODIFIED && !is_directory(project_changes[0].full_path) {
             change := pop(*project_changes);
             if should_watch_file_for_changes(change.full_path) then refresh_buffer_from_disk_by_path(path = change.full_path);
         }
-        if external_changes.count == 1 && external_changes[0].events == .MODIFIED {
-            change := pop(*external_changes);
-            parent_dir := get_parent_dir_path(change.full_path);
-            if dir_is_within_project(parent_dir) || file_is_watched(change.full_path) {
-                // We only want to refresh if the modified event is for a file we care about
+        for change : external_changes {
+            if file_is_watched(change.full_path) {
                 refresh_buffer_from_disk_by_path(path = change.full_path);
+            }
+            if change.events & .SCAN_CHILDREN {
+                for path : watch_files {
+                    if platform_path_equals(get_parent_dir_path(path), change.full_path) {
+                        refresh_buffer_from_disk_by_path(path);
+                    }
+                }
             }
         }
 
@@ -103,6 +109,9 @@ file_watcher_process_changes :: () {
         }
 
         for change : project_changes {
+            if find_buffer_id_by_path(change.full_path) >= 0 {
+                refresh_buffer_from_disk_by_path(change.full_path);
+            }
             dir: string;
             is_directory, success := is_directory(change.full_path);
             if success && is_directory {

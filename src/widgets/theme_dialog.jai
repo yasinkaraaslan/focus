@@ -93,7 +93,10 @@ apply_selected_theme :: (_: Editor_Placement) {
     }
 
     rescan_for_lines(buffer);
-    save_buffer(buffer, buffer_id);
+    if !save_buffer(buffer, buffer_id) {
+        hide_dialog(theme_dialog);
+        return;
+    }
     add_success_message("Theme has been saved to %", config_to_change.path);
 
     hide_dialog(theme_dialog);

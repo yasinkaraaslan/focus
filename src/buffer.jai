@@ -779,7 +779,7 @@ save_buffer_to_file :: (buffer: *Buffer, buffer_id: s64, file_path: string) {
         }
         unlock(*open_buffers_lock);
 
-        save_buffer(buffer, buffer_id);
+        save_buffer(buffer, buffer_id, overwrite = true);
     } else {
         // We're "saving as", in which case we want to create a new buffer and also keep the current buffer
         buffer_contents := get_buffer_contents_for_writing(buffer);
@@ -804,25 +804,37 @@ save_buffer_to_file :: (buffer: *Buffer, buffer_id: s64, file_path: string) {
     start_watching_file_if_not_already(file_path);
 }
 
-save :: (buffer_id: s64) {
+save :: (buffer_id: s64) -> saved_or_deferred: bool {
     buffer := *open_buffers[buffer_id];
-    if buffer.readonly || buffer.internal return;
+    if buffer.readonly || buffer.internal return true;
 
-    if buffer.modified_on_disk {
-        // Don't save without showing a confirmation dialog
-        defer_action_overwrite_buffer(buffer_id);
-    } else if buffer.has_file {
-        save_buffer(buffer, buffer_id);
+    if buffer.has_file {
+        saved := save_buffer(buffer, buffer_id);
+        return saved || !buffer.error_when_saving;
     } else {
         defer_action_save_as(buffer_id);
+        return true;
     }
 }
 
-save_buffer :: (using buffer: *Buffer, buffer_id: s64) {
-    if readonly return;
+save_buffer :: (using buffer: *Buffer, buffer_id: s64, overwrite := false) -> saved: bool {
+    if readonly return false;
 
     assert(has_file, "Trying to save a buffer without an associated file. This is a bug.");
+    error_when_saving = false;
 
+    if !overwrite && file_exists(file.full_path) {
+        if !reload_from_disk(buffer_id, show_user_messages = true) {
+            error_when_saving = true;
+            return false;
+        }
+        if modified_on_disk {
+            defer_action_overwrite_buffer(buffer_id);
+            return false;
+        }
+    }
+
+    if dirty rescan_for_lines(buffer);
     buffer_settings := get_settings(buffer);
 
     if buffer_settings.strip_trailing_whitespace_on_save != .disabled {
@@ -844,6 +856,7 @@ save_buffer :: (using buffer: *Buffer, buffer_id: s64) {
         error_when_saving = false;
     } else {
         error_when_saving = true;
+        add_user_error("Couldn't save file:\n%", file.full_path);
     }
 
     remember_last_mod_info(buffer);
@@ -855,6 +868,7 @@ save_buffer :: (using buffer: *Buffer, buffer_id: s64) {
     maybe_defer_refresh_config_or_theme(buffer.file.full_path);
 
     redraw_requested = true;
+    return success;
 }
 
 reroute_editors_to_new_buffer :: (old_buffer_id: s64, new_buffer_id: s64) {
@@ -1107,8 +1121,7 @@ remember_last_mod_info :: (using buffer: *Buffer) {
 
     modtime_apollo, size, success := file_modtime_and_size(file.full_path);
     if success {
-        // We don't care too much about precision here. We only care about last_modtime being different from the previous one if it changes
-        mod_info.last_modtime = cast,trunc(s32) to_milliseconds(modtime_apollo);
+        mod_info.last_modtime = modtime_apollo;
         mod_info.last_size    = cast(s32) size;
     } else {
         log_error("Couldn't get modtime and size of file %\n", file.full_path);
@@ -1122,8 +1135,7 @@ buffer_file_has_changed_on_disk :: (using buffer: *Buffer) -> changed: bool {
         log_error("Couldn't get modtime and size of %\n", file.full_path);
         return true;  // consider changed
     }
-    modtime := cast,trunc(s32) to_milliseconds(modtime_apollo);
-    return modtime != mod_info.last_modtime || size != mod_info.last_size;
+    return modtime_apollo != mod_info.last_modtime || size != mod_info.last_size;
 }
 
 is_empty :: (using buffer: Buffer, line_num: s32) -> bool {
@@ -1477,7 +1489,7 @@ refresh_buffer_from_disk_by_path :: (path: string) {
     buffer.deleted = false;
     open_file_dialog.should_refresh_entries = true;
 
-    if !buffer_file_has_changed_on_disk(buffer) return;
+    if !buffer.num_editors_open && !buffer_file_has_changed_on_disk(buffer) return;
 
     // Buffer may have changed on disk - reload and compare hashes to be sure
     assert(platform_path_equals(path, buffer.file.full_path));
@@ -1505,10 +1517,10 @@ reload_from_disk :: (buffer_id: s64, force := false, show_user_messages := false
         }
         return false;
     }
-    if is_file_binary(file_contents_str) {
+    if file_contents_str.count > MAX_BUFFER_SIZE || is_file_binary(file_contents_str) {
         free(file_contents_str);
-        file_contents_str = sprint("Couldn't display file '%' because it's either binary or contains non-UTF8 characters.", path);
-        buffer.readonly = true;
+        if show_user_messages then add_user_error("Couldn't reload file (binary or too large):\n%", path);
+        return false;
     }
     defer free(file_contents_str);
 
@@ -1516,20 +1528,27 @@ reload_from_disk :: (buffer_id: s64, force := false, show_user_messages := false
     file_hash := calculate_hash(cast([] u8) file_contents_str);
     if buffer.meow_hash == file_hash && !force return true;
 
-    buffer.crlf = bytes_removed > 0;
+    buffer_hash := calculate_hash(to_view(buffer.bytes));
+    has_local_changes := buffer.modified || buffer_hash != buffer.meow_hash;
     buffer.meow_hash = file_hash;
     buffer.deleted = false;
+    remember_last_mod_info(buffer);
 
-    if buffer.modified && !force {
+    if has_local_changes && buffer_hash != file_hash && !force {
         // Mark conflict
         // TODO: display a dialog prompting to reload
+        buffer.modified = true;
         buffer.modified_on_disk = true;
     } else {
+        buffer.crlf = bytes_removed > 0;
+        buffer.modified = false;
         buffer.modified_on_disk = false;
-        remember_last_mod_info(buffer);
+        if buffer.dirty rescan_for_lines(buffer);
         cursor_positions := remember_cursor_positions(buffer_id, in = .all_editors);
         replace_range(buffer, .{ 0, buffer.bytes.count }, file_contents_str);
         restore_cursor_positions(buffer_id, cursor_positions);
+        refresh_all_editors_for_buffer(buffer_id, adjust_cursors = false);
+        return true;
     }
 
     refresh_all_editors_for_buffer(buffer_id);
@@ -1636,7 +1655,9 @@ unsaved_buffers_exist :: () -> bool {
 }
 
 is_unsaved :: (buffer: Buffer) -> bool {
-    return buffer.modified && !buffer.readonly && !buffer.internal;
+    if buffer.readonly || buffer.internal return false;
+    if buffer.modified return true;
+    return (buffer.dirty || buffer.was_dirty_during_frame) && buffer.meow_hash != calculate_hash(to_view(buffer.bytes));
 }
 
 remove_all_buffers :: () {
@@ -1865,7 +1886,7 @@ Buffer :: struct {
     Extra_Type :: enum { focus_config; }
 
     Mod_Info :: struct {
-        last_modtime: s32;  // Apollo_Time converted to milliseconds
+        last_modtime: Apollo_Time;
         last_size:    s32;
     }
 

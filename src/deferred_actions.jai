@@ -68,7 +68,6 @@ defer_action_save_as :: (buffer_id: s64) {
 }
 
 defer_action_overwrite_buffer :: (buffer_id: s64) {
-    clear_action_queue();
     buffer := *open_buffers[buffer_id];
     assert(buffer.has_file && buffer.file.full_path != "");
     push_action(.confirm_overwrite, .{ type = .confirm_overwrite, confirm_overwrite = .{ buffer_id = buffer_id, is_move = false, file_path = copy_string(buffer.file.full_path) } });
@@ -302,7 +301,9 @@ execute_save_buffers :: (action: Deferred_Action) -> Action_Result {
         case .OK;
             buffer_ids_to_save := array_copy(buffer_ids,, temp);  // otherwise remove_top_action will destroy it
             remove_top_action();
-            for < buffer_ids_to_save  save(it);
+            for < buffer_ids_to_save {
+                if !save(it) return .CANCEL;
+            }
             return .NEXT;
 
         case .NO_TO_ALL; return .DONE;
@@ -421,7 +422,7 @@ execute_confirm_overwrite :: (action: Deferred_Action) -> Action_Result {
 
             if buffer.has_file && platform_path_equals(buffer.file.full_path, file_path) {
                 // The user selected the same file as a target. Just save.
-                save_buffer(buffer, buffer_id);
+                if !save_buffer(buffer, buffer_id, overwrite = true) return .CANCEL;
             } else {
                 save_buffer_to_file(buffer, buffer_id, file_path);
                 if buffer.error_when_saving {

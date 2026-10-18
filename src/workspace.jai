@@ -114,6 +114,7 @@ add_directory_to_workspace :: (path: string, index := -1) {
 start_workspace_scan :: () {
     file_list_ready = false;
     workspace_scan_complete = false;
+    array_reset_keeping_memory(*buffers_to_refresh_after_scan);
 
     // Get the list of all files in the project asynchronously (depending on the size it can cause a startup delay otherwise)
     file_list_thread_group = Thread_Group.{};  // if we don't do this it can't be reused
@@ -185,6 +186,7 @@ workspace_update :: () {
             shutdown(*scanner_thread_group);
             scanner_thread_group = Thread_Group.{};
 
+            refresh_buffers_after_workspace_scan();
             reset(*scan_memory_pool);
 
             start_file_watcher();
@@ -294,6 +296,8 @@ reload_workspace :: (automatic := false) {
     bucket_array_reset(*open_buffers);
     open_buffers = new_open_buffers;
 
+    for buffers_to_refresh_from_disk reload_from_disk(it, force = true);
+
     // !!!!!!!!!!!!!!!!!!
     // // Reopen visible editors, if any of them are preserved
     // if editors.layout != .None {
@@ -401,11 +405,21 @@ directory_scan_threadproc :: (group: *Thread_Group, thread: *Thread, work: *void
                 log_error("Couldn't open file because path is too long for %: \"%\"\n", OS, path);
                 continue;
             }
-            if !created then reload_from_disk(buffer_id, force = true);  // when refreshing workspace we want up to date data from disk
+            if !created {
+                lock(*open_buffers_lock);
+                array_add(*buffers_to_refresh_after_scan, buffer_id);
+                unlock(*open_buffers_lock);
+            }
         }
     }
 
     return .CONTINUE;
+}
+
+// Call only on the main thread, after the scanner workers have stopped.
+refresh_buffers_after_workspace_scan :: () {
+    for buffers_to_refresh_after_scan reload_from_disk(it);
+    array_reset_keeping_memory(*buffers_to_refresh_after_scan);
 }
 
 
@@ -420,6 +434,7 @@ get_scan_pool_allocator :: () -> Allocator {
 
 file_list_thread_group:     Thread_Group;
 scanner_thread_group:       Thread_Group;
+buffers_to_refresh_after_scan: [..] s64;
 
 scan_memory_pool: Flat_Pool;
 files_to_scan: [..] string;

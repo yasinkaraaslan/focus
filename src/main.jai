@@ -478,13 +478,15 @@ maybe_execute_a_build_command :: (action: Action_Build) -> handled: bool {
 
     if config.settings.save_all_file_backed_buffers_on_build {
         for * buffer, buffer_id : open_buffers {
-            if buffer.modified && buffer.has_file {
-                save_buffer(buffer, buffer_id);
+            if is_unsaved(buffer) && buffer.has_file {
+                if !save_buffer(buffer, buffer_id) return true;
             }
         }
     } else if config.settings.save_current_buffer_on_build {
         editor, buffer := get_visible_editor_and_buffer();
-        if editor && buffer.has_file save_buffer(buffer, editor.buffer_id);
+        if editor && buffer.has_file {
+            if !save_buffer(buffer, editor.buffer_id) return true;
+        }
     }
 
     defer_action_build_command(command_id);

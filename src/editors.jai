@@ -525,7 +525,7 @@ get_editor_and_buffer :: inline (editor_id: s64) -> *Editor, *Buffer {
     return editor, buffer;
 }
 
-refresh_all_editors_for_buffer :: (buffer_id: s64) {
+refresh_all_editors_for_buffer :: (buffer_id: s64, adjust_cursors := true) {
     buffer := *open_buffers[buffer_id];
 
     for * editor, editor_id : open_editors {
@@ -544,6 +544,7 @@ refresh_all_editors_for_buffer :: (buffer_id: s64) {
             using editor.viewport.glue_point;
             if buffer_pos >= edit.offset then buffer_pos = max(buffer_pos + edit.delta, edit.offset);
 
+            if !adjust_cursors continue;
             for * cursor : editor.cursors {
                 if cursor.pos >= edit.offset then cursor.pos = max(cursor.pos + edit.delta, edit.offset);
                 if cursor.sel >= edit.offset then cursor.sel = max(cursor.sel + edit.delta, edit.offset);
@@ -3016,7 +3017,7 @@ action_reload_from_disk :: (buffer_id: s64) {
         return;
     }
 
-    reload_from_disk(buffer_id, force = true, show_user_messages = true);
+    if !reload_from_disk(buffer_id, force = true, show_user_messages = true) return;
 
     add_success_message("File contents has been reloaded from\n%", buffer.file.full_path);
 
