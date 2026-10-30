@@ -1,6 +1,6 @@
 // Increment this if your PR adds a setting, color or default keybinding (and amend the relevant array
 // in config_migrator.jai).  You don't need to increase it for each such change; once per PR is best.
-CURRENT_CONFIG_VERSION :: 29;
+CURRENT_CONFIG_VERSION :: 30;
 
 load_global_config :: (fallback_to_default_on_failure := false, force := false) -> success: bool, changed: bool, there_were_warnings: bool {
     config_path := tprint("%/global.focus-config", config_dir);
@@ -845,6 +845,7 @@ Settings :: struct {
 
     // Settings which can be overridden in a file-specific block
     show_line_numbers                                       := false;                                               @v1  @overridable
+    relative_line_numbers                                   := false;                                               @v30 @overridable
     cursor_as_block                                         := true;                                                @v1  @overridable
     highlight_selection_occurrences                         := true;                                                @v1  @overridable
     highlight_line_with_cursor                              := false;                                               @v2  @overridable

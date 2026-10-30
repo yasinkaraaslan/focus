@@ -592,6 +592,7 @@ ADDED_SETTINGS :: Added_Setting.[
     .{ 27, "switch_to_project_after_create",                      "true" },
     .{ 28, "vim_mode",                                           "false  # enable basic Vim Normal, Insert and Visual modes" },
     .{ 29, "respect_gitignore",                                  "false" },
+    .{ 30, "relative_line_numbers",                              "false" },
 ];
 
 RENAMED_SETTINGS :: Renamed_Setting.[
@@ -1478,6 +1479,7 @@ line_endings:                                    preserve  # options: lf, crlf, 
 switch_to_project_after_create:                  true
 vim_mode:                                        false  # enable basic Vim Normal, Insert and Visual modes
 respect_gitignore:                               false
+relative_line_numbers:                           false
 
 FOCUS_CONFIG
 
@@ -1632,6 +1634,7 @@ line_endings:                                    preserve  # options: lf, crlf, 
 switch_to_project_after_create:                  true
 vim_mode:                                        false  # enable basic Vim Normal, Insert and Visual modes
 respect_gitignore:                               false
+relative_line_numbers:                           false
 
 FOCUS_CONFIG
 
@@ -2025,6 +2028,7 @@ line_endings:                                    preserve  # options: lf, crlf, 
 switch_to_project_after_create:                  true
 vim_mode:                                        false  # enable basic Vim Normal, Insert and Visual modes
 respect_gitignore:                               false
+relative_line_numbers:                           false
 
 [[keymap]]
 # ...

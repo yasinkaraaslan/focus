@@ -1720,6 +1720,7 @@ draw_editor :: (editor_id: s64, main_area: Rect, ui_id: Ui_Id, pane: *Editor_Pan
 
         y := text_origin.y + (line_height - char_x_advance) / 2 - visible_lines_start * line_height;
         x := line_number_panel.x + line_number_panel.w - char_x_advance;
+        reference_line_num := offset_to_real_line(buffer, get_main_cursor(editor).pos);
 
         if line_wrap_is_active(editor) {
             last_line_num := -1;
@@ -1730,7 +1731,11 @@ draw_editor :: (editor_id: s64, main_area: Rect, ui_id: Ui_Id, pane: *Editor_Pan
 
                 if real_line_num != last_line_num {
                     active := array_find(active_lines, real_line_num);
-                    width := Simp.prepare_text(font_main, tprint("%", real_line_num + 1));
+                    display_num := real_line_num + 1;
+                    if buffer_settings.relative_line_numbers && real_line_num != reference_line_num {
+                        display_num = abs(real_line_num - reference_line_num);
+                    }
+                    width := Simp.prepare_text(font_main, tprint("%", display_num));
                     Simp.draw_prepared_text(font_main, xx (x - width), xx y, color = ifx active then cast(u8) Color.UI_DEFAULT else cast(u8) Color.UI_DIM);
                     last_line_num = real_line_num;
                 }
@@ -1740,7 +1745,11 @@ draw_editor :: (editor_id: s64, main_area: Rect, ui_id: Ui_Id, pane: *Editor_Pan
         } else {
             for line_num : visible_lines_start .. visible_lines_end {
                 active := array_find(active_lines, line_num);
-                width := Simp.prepare_text(font_main, tprint("%", line_num + 1));
+                display_num := line_num + 1;
+                if buffer_settings.relative_line_numbers && line_num != reference_line_num {
+                    display_num = abs(line_num - reference_line_num);
+                }
+                width := Simp.prepare_text(font_main, tprint("%", display_num));
                 Simp.draw_prepared_text(font_main, xx (x - width), xx y, color = ifx active then cast(u8) Color.UI_DEFAULT else cast(u8) Color.UI_DIM);
                 y -= line_height;
             }
