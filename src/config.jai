@@ -1,6 +1,6 @@
 // Increment this if your PR adds a setting, color or default keybinding (and amend the relevant array
 // in config_migrator.jai).  You don't need to increase it for each such change; once per PR is best.
-CURRENT_CONFIG_VERSION :: 28;
+CURRENT_CONFIG_VERSION :: 29;
 
 load_global_config :: (fallback_to_default_on_failure := false, force := false) -> success: bool, changed: bool, there_were_warnings: bool {
     config_path := tprint("%/global.focus-config", config_dir);
@@ -85,6 +85,15 @@ refresh_config :: (path: string) {
     old_workspace_members.allocator = temp;
     for config.workspace.members array_add(*old_workspace_members, copy_temporary_string(it));
 
+    old_respect_gitignore := config.settings.respect_gitignore;
+    old_include_list: [..] File_Pattern;
+    old_include_list.allocator = temp;
+    for config.workspace.include {
+        pat_copy := it;
+        pat_copy.pattern = copy_temporary_string(it.pattern);
+        array_add(*old_include_list, pat_copy);
+    }
+
     old_allow_list: [..] File_Pattern;
     old_allow_list.allocator = temp;
     for config.workspace.allow {
@@ -148,7 +157,13 @@ refresh_config :: (path: string) {
         }
     }
 
-    allow_ignore_changed := false;
+    allow_ignore_changed := old_respect_gitignore != config.settings.respect_gitignore;
+    for config.workspace.include {
+        if !array_find(old_include_list, it) { allow_ignore_changed = true; break; }
+    }
+    for old_include_list {
+        if !array_find(config.workspace.include, it) { allow_ignore_changed = true; break; }
+    }
     for config.workspace.allow {
         exists := array_find(old_allow_list, it);
         if !exists { allow_ignore_changed = true; break; }
@@ -452,11 +467,14 @@ free_loaded_config :: (using loaded_config: *Loaded_Config) {
     }
 }
 
+#scope_export
+
 merge_configs :: (dst: *Config, parsed: Parsed_Config) {
     // Completely replace the workspace subsections if present
     if parsed.members           then dst.workspace.members = parsed.members;
-    if parsed.ignore            then dst.workspace.ignore  = parsed.ignore;
-    if parsed.allow             then dst.workspace.allow   = parsed.allow;
+    if parsed.has_include       then dst.workspace.include = parsed.include;
+    if parsed.has_ignore        then dst.workspace.ignore  = parsed.ignore;
+    if parsed.has_allow         then dst.workspace.allow   = parsed.allow;
     if parsed.file_associations then dst.workspace.file_associations = parsed.file_associations;
 
     // Build config completely overrides the previous config if present
@@ -505,6 +523,8 @@ merge_configs :: (dst: *Config, parsed: Parsed_Config) {
     // Platform config
     dst.linux = parsed.linux;
 }
+
+#scope_file
 
 apply_config :: () {
     // A live configuration reload starts each pane in a predictable mode.
@@ -687,6 +707,7 @@ Linux_Config :: struct {
 
 Workspace :: struct {
     members:            [] string;
+    include:            [] File_Pattern;
     ignore:             [] File_Pattern;
     allow:              [] File_Pattern;
     file_associations:  [] File_Association;
@@ -694,6 +715,8 @@ Workspace :: struct {
 
 File_Pattern :: struct {
     pattern: string;  // pre-lowercased on Windows
+    source: string;
+    line: s64;
     should_match_whole_path: bool;
     pattern_type: Pattern_Type;
 
@@ -716,7 +739,7 @@ construct_file_pattern :: (pattern: string) -> File_Pattern {
     ext, is_ext_pattern := is_extension_pattern(pattern);
     if is_ext_pattern && !should_match_whole_path {
         pattern_type = .EXTENSION;
-        final_pattern = ext;
+        #if OS == .WINDOWS { final_pattern = to_lower_copy(ext); } else { final_pattern = ext; }
     } else if contains_wildcards(pattern) {
         pattern_type = .WILDCARD;
     } else {
@@ -778,6 +801,7 @@ Settings :: struct {
     show_paste_effect                                       := true;    @v6
     line_height_scale_percent                               := 120;     @v1
     can_cancel_go_to_line                                   := true;    @v1
+    respect_gitignore                                       := false;   @v29
     vim_mode                                                := false;   @v28
     hide_mouse_when_typing                                  := true;    @v1
     dark_titlebar                                           := false;   @v1

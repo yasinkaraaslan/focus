@@ -60,6 +60,12 @@ file_watcher_process_changes :: () {
     project_files_changed  := process_changes(*watchers.project_watcher);
     external_files_changed := process_changes(*watchers.external_watcher);
 
+    if file_filter_changes_require_reload(watchers.project_changes, watchers.external_changes) {
+        // The deferred reload owns cache invalidation, after workers finish.
+        defer_action_reload_workspace(automatic = true);
+        return;
+    }
+
     if project_files_changed || external_files_changed {
         using watchers;
 
@@ -154,7 +160,7 @@ file_watcher_process_changes :: () {
     }
 }
 
-start_watching_file_if_not_already :: (file_path: string) {
+start_watching_file_if_not_already :: (file_path: string, allow_missing := false) {
     assert(context.allocator.proc == focus_allocator.proc, "Unexpected context allocator for start_watching_file_if_not_already. This is a bug.");
     if file_is_watched(file_path) return;
 
@@ -169,6 +175,7 @@ start_watching_file_if_not_already :: (file_path: string) {
         }
         log("Started watching external directory '%'", parent_dir);
     }
+    if allow_missing && !file_exists(file_path) return;  // parent is registered for creation events
     full_path, success := get_absolute_path(file_path,, temp);
     if !success {
         log_error("Couldn't start watching file % because it's not found", file_path);
@@ -194,6 +201,12 @@ file_is_watched :: (file_path: string) -> bool {
     for watch_files {
         if platform_path_equals(it, file_path) return true;
     }
+    return false;
+}
+
+file_filter_changes_require_reload :: (project_changes: [] File_Change, external_changes: [] File_Change) -> bool {
+    for project_changes  if is_file_filter_control_path(it.full_path) || file_filter_directory_change(it) return true;
+    for external_changes if is_file_filter_control_path(it.full_path) || file_filter_directory_change(it) return true;
     return false;
 }
 

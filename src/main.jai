@@ -1027,6 +1027,7 @@ focus_allocator: Allocator;
 #load "draw.jai";
 #load "pointer_image.jai";
 #load "files.jai";
+#load "file_filters.jai";
 #load "workspace.jai";
 #load "file_watcher.jai";
 #load "config.jai";

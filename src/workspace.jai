@@ -112,6 +112,7 @@ add_directory_to_workspace :: (path: string, index := -1) {
 }
 
 start_workspace_scan :: () {
+    watch_ancestor_gitignore_files();
     file_list_ready = false;
     workspace_scan_complete = false;
     array_reset_keeping_memory(*buffers_to_refresh_after_scan);
@@ -132,6 +133,7 @@ get_workspace_scan_progress :: () -> float {
 }
 
 workspace_update :: () {
+    flush_file_filter_warnings();
     if !workspace_scan_complete {
         if !file_list_ready {
             results := get_completed_work(*file_list_thread_group);

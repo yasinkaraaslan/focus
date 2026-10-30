@@ -3,6 +3,7 @@ CONFIG_SECTIONS :: Config_Section.[
     .{
         name = "workspace",
         subsections = .[
+            "include",
             "ignore",
             "allow",
             "file associations",
@@ -442,6 +443,10 @@ maybe_switch_section :: (using parser: *Config_Parser, line: string, fix_section
             return builder_to_string(*b);
         }
 
+        if active_subsection == .workspace_include then result.config.has_include = true;
+        if active_subsection == .workspace_ignore  then result.config.has_ignore = true;
+        if active_subsection == .workspace_allow   then result.config.has_allow = true;
+
         if active_subsection == .style_colors {
             result.config.offsets.colors_section_start = line_start_offset;
         } else if result.config.offsets.colors_section_start >= 0 && result.config.offsets.colors_section_end < 0 {
@@ -492,53 +497,32 @@ parse_workspace_line :: (using parser: *Config_Parser, line: string) -> success:
                 }
                 return true, tprint("Attempted to load '%', but it doesn't exist", abs_path);
             }
-        case .workspace_ignore;
-            item := copy_string(trim(line, "\t "));
-            item = trim_right(item, "/");
-            path_overwrite_separators(item, #char "/");
-            if begins_with(item, "./") {
-                advance(*item, 2);
-                // Add an expanded entry for each workspace dir
-                for member : result.config.members {
-                    is_dir, success := is_directory(member);
-                    if !is_dir || !success  continue;
-
-                    pattern := sprint("%/%", member, item);
-                    #if OS == .WINDOWS {
-                        to_lower_in_place(pattern);
-                    }
-                    array_add(*result.config.ignore, construct_file_pattern(pattern));
-                }
-            } else {
-                #if OS == .WINDOWS {
-                    to_lower_in_place(item);
-                }
-                array_add(*result.config.ignore, construct_file_pattern(item));
-            }
-
+        case .workspace_include; #through;
+        case .workspace_ignore;  #through;
         case .workspace_allow;
+            patterns := *result.config.ignore;
+            if active_subsection == .workspace_include then patterns = *result.config.include;
+            if active_subsection == .workspace_allow   then patterns = *result.config.allow;
             item := copy_string(trim(line, "\t "));
-            item = trim_right(item, "/");
             path_overwrite_separators(item, #char "/");
-            if begins_with(item, "./") {
-                advance(*item, 2);
-                // Add an expanded entry for each workspace dir
-                for member : result.config.members {
-                    is_dir, success := is_directory(member);
-                    if !is_dir || !success  continue;
-
-                    pattern := sprint("%/%", member, item);
-                    #if OS == .WINDOWS {
-                        to_lower_in_place(pattern);
-                    }
-                    array_add(*result.config.allow, construct_file_pattern(pattern));
+            rooted_pattern := begins_with(item, "./") || is_absolute_path(item);
+            directory_include := active_subsection == .workspace_include && ends_with(item, "/");
+            item = trim_right(item, "/");
+            if directory_include {
+                // Directory includes select descendants. Bare names retain
+                // their anywhere-in-the-path meaning; ./ stays root-relative.
+                if !rooted_pattern && !contains(item, #char "/") {
+                    item = sprint("**/%/**", item);
+                } else {
+                    item = sprint("%/**", item);
                 }
-            } else {
-                #if OS == .WINDOWS {
-                    to_lower_in_place(item);
-                }
-                array_add(*result.config.allow, construct_file_pattern(item));
             }
+            // Keep root-relative rules until evaluation: project roots may
+            // replace global roots, or be supplied after this section.
+            fp := construct_file_pattern(item);
+            fp.source = copy_string(handler.full_path);
+            fp.line = handler.line_number;
+            array_add(patterns, fp);
 
         case .workspace_file_associations;
             found, wildcards, lang_name := split_from_left(line, cast(u8) #char ":");
@@ -1416,6 +1400,10 @@ Parsed_Config :: struct {
 
     // Workspace
     members:            [..] string;
+    include:            [..] File_Pattern;
+    has_include: bool;
+    has_ignore: bool;
+    has_allow: bool;
     ignore:             [..] File_Pattern;
     allow:              [..] File_Pattern;
     file_associations:  [..] File_Association;

@@ -448,11 +448,66 @@ DONE
         }
     }
 
+    if config_info.version < 29 && !assume_section {
+        migrated_filters := migrate_empty_file_filter_sections(cast(string) modified_data);
+        array_reset(*modified_data);
+        array_add(*modified_data, ..cast([]u8) migrated_filters);
+        // A migrated project must not start inheriting an enabled global Git
+        // setting. Explicitly keep its previous behavior until the user opts in.
+        if !is_global_config && !table_contains(*config_info.settings_present, "respect_gitignore") {
+            settings_offset: s64 = -1;
+            for raw_line : split(cast(string) modified_data, #char "\n",, temp) {
+                _, before_comment := split_from_left(raw_line, #char "#");
+                if trim(before_comment) == "[[settings]]" {
+                    settings_offset = raw_line.data - modified_data.data;
+                    break;
+                }
+            }
+            if settings_offset >= 0 {
+                insert_offset := settings_offset + get_line_length(modified_data, settings_offset);
+                if insert_offset == modified_data.count && modified_data[modified_data.count-1] != #char "\n" {
+                    array_add(*modified_data, #char "\n");
+                    insert_offset += 1;
+                }
+                array_insert_bytes_at(*modified_data, insert_offset, cast([]u8) "respect_gitignore: false  # opt in to .gitignore filtering\n");
+            } else {
+                array_add(*modified_data, ..cast([]u8) "\n[[settings]]\nrespect_gitignore: false  # opt in to .gitignore filtering\n");
+            }
+        }
+    }
     return true, cast(string) modified_data;
 }
 
 
 #scope_file
+
+migrate_empty_file_filter_sections :: (data: string) -> string {
+    removals: [..] struct { offset: s64; count: s64; };
+    removals.allocator = temp;
+    pending_offset: s64 = -1;
+    pending_count: s64;
+    in_workspace := false;
+    for raw_line : split(data, #char "\n",, temp) {
+        line := trim(raw_line, " \t\r");
+        _, before_comment := split_from_left(line, #char "#");
+        line = trim(before_comment);
+        if !line continue;
+        if begins_with(line, "[") {
+            if pending_offset >= 0 array_add(*removals, .{pending_offset, pending_count});
+            pending_offset = -1;
+            if begins_with(line, "[[") in_workspace = line == "[[workspace]]";
+            if in_workspace && (line == "[ignore]" || line == "[allow]") {
+                pending_offset = line.data - data.data;
+                pending_count = line.count;
+            }
+        } else pending_offset = -1;
+    }
+    if pending_offset >= 0 array_add(*removals, .{pending_offset, pending_count});
+    output: [..] u8;
+    array_add(*output, ..cast([]u8) data);
+    for < removal : removals array_delete_bytes(*output, removal.offset, removal.count);
+    return cast(string) output;
+}
 
 valid_version :: inline (added_version: int, config_version: int) -> bool {
     return added_version <= CURRENT_CONFIG_VERSION && added_version > config_version;
@@ -536,6 +591,7 @@ ADDED_SETTINGS :: Added_Setting.[
 
     .{ 27, "switch_to_project_after_create",                      "true" },
     .{ 28, "vim_mode",                                           "false  # enable basic Vim Normal, Insert and Visual modes" },
+    .{ 29, "respect_gitignore",                                  "false" },
 ];
 
 RENAMED_SETTINGS :: Renamed_Setting.[
@@ -1007,7 +1063,7 @@ MIGRATE_BUILTIN_THEMES :: !NO_OUTPUT_BUILD && !DEBUG;
 
     print("All unit tests passed!\n");
 
-    if MIGRATE_BUILTIN_THEMES #run,stallable {
+    #if MIGRATE_BUILTIN_THEMES #run,stallable {
         for theme : BUILTIN_THEMES {
             theme_file := tprint("config/themes/%.focus-theme", theme.name);
             migrated, modified_data := maybe_migrate_config(theme_file, theme.contents);
@@ -1192,6 +1248,9 @@ C:/projects/project1
 .svn
 .git
 
+
+[[settings]]
+respect_gitignore: false  # opt in to .gitignore filtering
 FOCUS_CONFIG
 
 WORKSPACE_4 :: #string FOCUS_CONFIG
@@ -1418,6 +1477,7 @@ show_tab_characters_in_selection:                true
 line_endings:                                    preserve  # options: lf, crlf, preserve
 switch_to_project_after_create:                  true
 vim_mode:                                        false  # enable basic Vim Normal, Insert and Visual modes
+respect_gitignore:                               false
 
 FOCUS_CONFIG
 
@@ -1571,6 +1631,7 @@ show_tab_characters_in_selection:                true
 line_endings:                                    preserve  # options: lf, crlf, preserve
 switch_to_project_after_create:                  true
 vim_mode:                                        false  # enable basic Vim Normal, Insert and Visual modes
+respect_gitignore:                               false
 
 FOCUS_CONFIG
 
@@ -1649,6 +1710,7 @@ Ctrl-8                      switch_to_pane_8
 Ctrl-9                      switch_to_pane_9
 
 [[settings]]
+respect_gitignore: false  # opt in to .gitignore filtering
 
 maximize_on_start:                      false
 tab_size:                               4
@@ -1962,6 +2024,7 @@ show_tab_characters_in_selection:                true
 line_endings:                                    preserve  # options: lf, crlf, preserve
 switch_to_project_after_create:                  true
 vim_mode:                                        false  # enable basic Vim Normal, Insert and Visual modes
+respect_gitignore:                               false
 
 [[keymap]]
 # ...

@@ -223,58 +223,12 @@ known_extensions_table :: #run -> Table(string, Known_Extension_File_Type) {
 #scope_export
 
 should_ignore_path :: (path: string) -> ignore: bool, explicitly_allowed: bool = false {
-    // NOTE: assuming path is pre-lowercased on Windows!
-
-    // Allow list has priority - check if path is explicitly allowed
-    for fp : config.workspace.allow {
-        if fp.should_match_whole_path {
-            if path_pattern_match(path, fp) return false, true;
-        } else {
-            // Match path chunks
-            chunk_start := 0;
-            for i : 0 .. path.count {
-                if i == path.count || path[i] == #char "/" {
-                    chunk := slice(path, chunk_start, i - chunk_start);
-                    if path_pattern_match(chunk, fp) return false, true;
-                    chunk_start = i + 1;
-                }
-            }
-        }
-    }
-
-    // Then check the user-specified ignore list
-    for fp : config.workspace.ignore {
-        if fp.should_match_whole_path {
-            if path_pattern_match(path, fp) return true;
-        } else {
-            // Match path chunks
-            chunk_start := 0;
-            for i : 0 .. path.count {
-                if i == path.count || path[i] == #char "/" {
-                    chunk := slice(path, chunk_start, i - chunk_start);
-                    if path_pattern_match(chunk, fp) return true;
-                    chunk_start = i + 1;
-                }
-            }
-        }
-    }
-
-    if begins_with_nocase(path, temp_dir) return true;  // ignore our own temp dir
-
-    return false;
+    result := evaluate_file_filter(path);
+    return result.ignored, result.explicitly_allowed;
 }
 
 should_descend_into_dir :: (path: string) -> bool {
-    // If we have ANY allow patterns in the config, we HAVE to descend into every dir,
-    // because even though the dir might be ignored, some of its contents might be
-    // explicitly allowed, so we have to check everything.
-    if config.workspace.allow return true;
-
-    #if OS == .WINDOWS {
-        return !should_ignore_path(to_lower_copy(path),, temp);
-    } else {
-        return !should_ignore_path(path);
-    }
+    return filter_should_descend(path);
 }
 
 path_pattern_match :: (path: string, fp: File_Pattern) -> bool {
@@ -486,11 +440,13 @@ File_Info :: struct {
 }
 
 init_file_tables :: () {
+    init_file_filter_cache();
     init(*ignore_table,       3000,, focus_allocator);
     init(*binary_files_table, 3000,, focus_allocator);
 }
 
 forget_ignore_table :: () {
+    reset_file_filter_cache();
     table_reset_threadsafe(*ignore_table);
 }
 
