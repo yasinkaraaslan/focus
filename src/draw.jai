@@ -1759,44 +1759,43 @@ draw_editor :: (editor_id: s64, main_area: Rect, ui_id: Ui_Id, pane: *Editor_Pan
     // Draw word completion
     if editor_is_active && word_complete.results.count {
 
-        word_complete.max_visible_item_at_once = word_complete.DEFAULT_MAX_VISIBLE_ITEM;
-        max_wc_item: s64 = min(word_complete.results.count, word_complete.max_visible_item_at_once);
-
         padding           := floor(10 * dpi_scale);
-        item_delta_scaler := (line_height + 5) * dpi_scale;
+        item_delta_scaler := line_height + 5 * dpi_scale;
         cursor_screen_pos := get_cursor_screen_pos(text_origin, cursor_coords[0].pos);
+
+        // Use the editor's bounds in screen coordinates, independently of line numbers.
+        max_wc_item := min(word_complete.results.count, word_complete.DEFAULT_MAX_VISIBLE_ITEM);
+        max_wc_item = min(max_wc_item, max(1, cast(s64) ((rect.h - padding) / item_delta_scaler)));
+        word_complete.max_visible_item_at_once = max_wc_item;
+
+        // Keep the selected result visible when resizing changes the number of rows.
+        word_complete.scroll_top = clamp(word_complete.scroll_top, 0, word_complete.results.count - max_wc_item);
+        if word_complete.selected_result_index >= 0 {
+            word_complete.scroll_top = clamp(word_complete.scroll_top,
+                max(0, word_complete.selected_result_index - max_wc_item + 1),
+                word_complete.selected_result_index);
+        }
 
         max_char := 0;
         for word_complete.results { if it.word.count > max_char max_char = it.word.count; }
 
-        rect_w, rect_h, rect_left, rect_bottom: float = 0;
-        calc_rect :: () #expand {
-            rect_w      = (max_char * char_x_advance) + (padding * 2);
-            rect_h      = max_wc_item * (item_delta_scaler) + padding;
-            rect_bottom = cursor_screen_pos.y - rect_h;
-            rect_left   = cursor_screen_pos.x + padding*2;
+        rect_w      := min(rect.w, (max_char * char_x_advance) + (padding * 2));
+        rect_h      := max_wc_item * item_delta_scaler + padding;
+        rect_bottom := cursor_screen_pos.y - rect_h;
+        rect_left   := clamp(cursor_screen_pos.x + padding * 2, rect.x, rect.x + rect.w - rect_w);
 
-            if rect_bottom < line_number_panel.h {
-                rect_bottom = line_number_panel.h + line_height;
-            }
-            if rect_left + rect_w + padding > main_area.w + main_area.x {
-                rect_left = (main_area.w + main_area.x) - (rect_w + padding);
-            }
+        // Prefer below the cursor, then above it, and keep the list inside the editor.
+        if rect_bottom < rect.y {
+            rect_bottom = cursor_screen_pos.y + line_height;
         }
-        calc_rect();
+        rect_bottom = clamp(rect_bottom, rect.y, max(rect.y, rect.y + rect.h - rect_h));
 
-        rect_top := rect_bottom + rect_h;
-        if (rect_top > main_area.h) {
-            // Reduce the max visible results if there is no more space to expand at the top
-            usable_h := main_area.h - line_number_panel.h;
-            max_wc_item = cast(s64)(usable_h / item_delta_scaler / 2);
-            word_complete.max_visible_item_at_once = max_wc_item;
-            calc_rect();
-        }
+        push_scissor(rect);
+        defer pop_scissor();
 
-        rect := make_rect(rect_left, rect_bottom, rect_w, rect_h);
+        completion_rect := make_rect(rect_left, rect_bottom, rect_w, rect_h);
         background_dark := Color.BACKGROUND_1;
-        draw_rounded_rect(rect, background_dark, radius = rounding_radius_large, set_shader = true);
+        draw_rounded_rect(completion_rect, background_dark, radius = rounding_radius_large, set_shader = true);
 
         i := 0;
         for word_complete.scroll_top..max_wc_item + word_complete.scroll_top - 1 {
