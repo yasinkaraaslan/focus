@@ -593,6 +593,7 @@ ADDED_SETTINGS :: Added_Setting.[
     .{ 28, "vim_mode",                                           "false  # enable basic Vim Normal, Insert and Visual modes" },
     .{ 29, "respect_gitignore",                                  "false" },
     .{ 30, "relative_line_numbers",                              "false" },
+    .{ 31, "auto_indent_closing_brackets",                        "true" },
 ];
 
 RENAMED_SETTINGS :: Renamed_Setting.[
@@ -1480,6 +1481,7 @@ switch_to_project_after_create:                  true
 vim_mode:                                        false  # enable basic Vim Normal, Insert and Visual modes
 respect_gitignore:                               false
 relative_line_numbers:                           false
+auto_indent_closing_brackets:                    true
 
 FOCUS_CONFIG
 
@@ -1635,6 +1637,7 @@ switch_to_project_after_create:                  true
 vim_mode:                                        false  # enable basic Vim Normal, Insert and Visual modes
 respect_gitignore:                               false
 relative_line_numbers:                           false
+auto_indent_closing_brackets:                    true
 
 FOCUS_CONFIG
 
@@ -2029,6 +2032,7 @@ switch_to_project_after_create:                  true
 vim_mode:                                        false  # enable basic Vim Normal, Insert and Visual modes
 respect_gitignore:                               false
 relative_line_numbers:                           false
+auto_indent_closing_brackets:                    true
 
 [[keymap]]
 # ...

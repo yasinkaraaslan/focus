@@ -339,7 +339,7 @@ update_cocoa_window_events :: () {
                 event: Event;
                 event.type = .KEYBOARD;
                 event.key_pressed = 1;
-                event.key_code = get_key_code(keycode, first);
+                event.key_code = get_key_code(keycode);
                 event.packed = 0;
                 event.shift_pressed    = shift_state;
                 event.ctrl_pressed     = ctrl_state;
@@ -388,7 +388,7 @@ update_cocoa_window_events :: () {
                 event: Event;
                 event.type = .KEYBOARD;
                 event.key_pressed = 0;
-                event.key_code = get_key_code(keycode, first);
+                event.key_code = get_key_code(keycode);
                 event.packed = 0;  // @Temporary: Unions not currently initialized.
                 event.shift_pressed    = shift_state;
                 event.ctrl_pressed     = ctrl_state;

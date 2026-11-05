@@ -273,3 +273,21 @@ resizes_to_free: [..] Window_Resize_Record;
 #import "Basic";
 #import "Window_Type";
 
+
+// Printable positions in PC set-1 scan codes (also Linux evdev codes).
+physical_pc_key :: (scan_code: u32, fallback: Key_Code, extended := false) -> Key_Code {
+    key := fallback;
+    if !extended {
+        starts := u32.[2, 16, 30, 44];
+        rows := string.["1234567890-+", "QWERTYUIOP[]", "ASDFGHJKL;'", "ZXCVBNM,./"];
+        for starts {
+            if scan_code >= it && scan_code - it < rows[it_index].count {
+                key = cast(Key_Code) rows[it_index][scan_code - it];
+                break;
+            }
+        }
+        if scan_code == 41 key = cast(Key_Code) #char "`";
+        if scan_code == 43 || scan_code == 86 key = cast(Key_Code) #char "\\";
+    }
+    return key;
+}

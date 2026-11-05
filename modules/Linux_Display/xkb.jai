@@ -152,6 +152,8 @@ ld_xkb_handle_key_event :: (d: *Base_Display, keycode: u32, event_type: LD_XKB_K
     ji_event.alt_pressed      = xkb_state_mod_index_is_active(state.kb_state, state.mod_idx_alt,   .XKB_STATE_MODS_EFFECTIVE) == 1;
     ji_event.cmd_meta_pressed = xkb_state_mod_index_is_active(state.kb_state, state.mod_idx_super, .XKB_STATE_MODS_EFFECTIVE) == 1;
 
+    ji_event.key_code = ld_xkb_physical_key(state, keycode, keysym);
+
     if event_type == .Press {
         xkb_compose_state_feed(state.kb_compose_state, keysym);
 
@@ -165,12 +167,10 @@ ld_xkb_handle_key_event :: (d: *Base_Display, keycode: u32, event_type: LD_XKB_K
         is_printable = ((utf32 >= 32) && (utf32 != 127));
 
         ji_event.key_pressed = 1;
-        ji_event.key_code = ifx ld_xkb_is_plus(state, keycode) then cast(Input.Key_Code)(#char "+") else x11_translate_key_code(keysym);
         ji_event.text_input_count = xx is_printable;
         d.input_button_states[ji_event.key_code] = (Input.Key_Current_State.START | Input.Key_Current_State.DOWN);
     } else {
         ji_event.key_pressed = 0;
-        ji_event.key_code = x11_translate_key_code(keysym);
         d.input_button_states[ji_event.key_code] = Input.Key_Current_State.END;
     }
     ji_event.repeat = repeat;
@@ -263,4 +263,20 @@ ld_xkb_handle_key_event :: (d: *Base_Display, keycode: u32, event_type: LD_XKB_K
     ld_xkb_is_plus :: (state: *LD_XKB_State, keycode: u32) -> bool #expand {
         return false;
     }
+}
+
+// XKB key names describe positions independently of the selected layout/group.
+ld_xkb_physical_key :: (state: *LD_XKB_State, keycode: u32, keysym: u32) -> Input.Key_Code {
+    name := to_string(xkb_keymap_key_get_name(state.kb_keymap, keycode));
+    rows := string.["AE", "AD", "AC", "AB"];
+    keys := string.["1234567890-+", "QWERTYUIOP[]", "ASDFGHJKL;'", "ZXCVBNM,./"];
+    for rows {
+        if name.count != 4 continue;
+        if name[0] != it[0] || name[1] != it[1] continue;
+        index := (cast(s32) name[2] - #char "0") * 10 + (cast(s32) name[3] - #char "0") - 1;
+        if index >= 0 && index < keys[it_index].count return cast(Input.Key_Code) keys[it_index][index];
+    }
+    if name == "TLDE" return cast(Input.Key_Code) #char "`";
+    if name == "BKSL" || name == "LSGT" return cast(Input.Key_Code) #char "\\";
+    return x11_translate_key_code(keysym);
 }

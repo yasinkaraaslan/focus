@@ -480,14 +480,14 @@ file_filter_directory_change :: (change: File_Change) -> bool {
         if filter_path_within(change.full_path, member) || filter_path_within(member, change.full_path) { relevant = true; break; }
     }
     if !relevant return false;
-    if change.events & .SCAN_CHILDREN return true;
+    if change.events & .SCAN_CHILDREN return filter_should_descend(change.full_path);
     if !(change.events & (.REMOVED | .MOVED)) return false;
-    if is_directory(change.full_path) return true;
+    if is_directory(change.full_path) return filter_should_descend(change.full_path);
     if !filter_cache_initialized return false;
-    lock(*filter_cache_lock);
-    defer unlock(*filter_cache_lock);
     key := change.full_path;
     #if OS == .WINDOWS { key = to_lower_copy(key,, temp); }
+    lock(*filter_cache_lock);
     found := table_find(*git_directories, key);
-    return found;
+    unlock(*filter_cache_lock);
+    return found && filter_should_descend(change.full_path);
 }

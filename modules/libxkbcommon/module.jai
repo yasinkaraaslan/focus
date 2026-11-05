@@ -156,6 +156,7 @@ XKB_Procs :: struct {
     xkb_keymap_ref : (keymap: *xkb_keymap) -> *xkb_keymap #c_call;
     xkb_keymap_unref : (keymap: *xkb_keymap) #c_call;
     xkb_keymap_mod_get_index : (keymap: *xkb_keymap, name: *u8) -> xkb_mod_index_t #c_call;
+    xkb_keymap_key_get_name : (keymap: *xkb_keymap, key: xkb_keycode_t) -> *u8 #c_call;
     xkb_keymap_min_keycode : (keymap: *xkb_keymap) -> xkb_keycode_t #c_call;
     xkb_keymap_max_keycode : (keymap: *xkb_keymap) -> xkb_keycode_t #c_call;
     xkb_keymap_num_layouts : (keymap: *xkb_keymap) -> xkb_layout_index_t #c_call;

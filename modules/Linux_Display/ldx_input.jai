@@ -253,6 +253,7 @@ x11_handle_event :: (x11_display: *X11_Display, xev: *X11.XEvent) -> expect_more
                 }
             }
 
+        // The legacy Xlib backend uses the Linux evdev keycode + 8 convention.
         case X11.KeyPress;
             event: Input.Event;
             status: X11.Status;
@@ -273,7 +274,7 @@ x11_handle_event :: (x11_display: *X11_Display, xev: *X11.XEvent) -> expect_more
 
                 event.type = .KEYBOARD;
                 event.key_pressed = 1;
-                event.key_code = x11_translate_key_code(keysym);
+                event.key_code = Input.physical_pc_key(xev.xkey.keycode - 8, x11_translate_key_code(keysym));
                 for 0..count - 1 {
                     utf32 := text[it];
                     if utf32 >= 32 && utf32 != 127 event.text_input_count += 1;
@@ -301,7 +302,7 @@ x11_handle_event :: (x11_display: *X11_Display, xev: *X11.XEvent) -> expect_more
                     text_event: Input.Event;
                     text_event.type = .TEXT_INPUT;
                     text_event.key_pressed = 1;
-                    text_event.key_code = x11_translate_key_code(keysym);
+                    text_event.key_code = Input.physical_pc_key(xev.xkey.keycode - 8, x11_translate_key_code(keysym));
                     text_event.utf32 = utf32;
                     array_add(*x11_display.base.events_this_frame, text_event);
                 }
@@ -333,7 +334,7 @@ x11_handle_event :: (x11_display: *X11_Display, xev: *X11.XEvent) -> expect_more
 
                 event.type = .KEYBOARD;
                 event.key_pressed = 0;
-                event.key_code = x11_translate_key_code(keysym);
+                event.key_code = Input.physical_pc_key(xev.xkey.keycode - 8, x11_translate_key_code(keysym));
 
                 if event.key_code == {
                     case .SHIFT; event.shift_pressed = true;

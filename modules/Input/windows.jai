@@ -228,7 +228,7 @@ MyWindowProc :: (hwnd: HWND, message: u32,
                 for key_down, vkey: key_down_table {
                     state := GetAsyncKeyState(cast,trunc(s32) vkey);
                     if !(state & 0x8000) {
-                        send_key_event(get_key_code(vkey), false);
+                        send_key_event(key_down, false);
                         remove;
                     }
                 }
@@ -240,13 +240,13 @@ MyWindowProc :: (hwnd: HWND, message: u32,
 
             extended := ((cast(u16)((cast(u32)lParam >> 16) & 0xffff)) & 0x0100 == 0x0100);  // (HIWORD(lParam) & KF_EXTENDED) == KF_EXTENDED
             repeat := ((cast (s32) lParam) & 0x40000000) != 0;
-            maybe_send_vkey_event(wParam, true, repeat, extended = extended);
+            maybe_send_vkey_event(wParam, true, repeat, extended = extended, scan_code = cast(u32)((lParam >> 16) & 0xff));
 
           case WM_SYSKEYUP; #through;
           case WM_KEYUP;
 
             extended := ((cast(u16)((cast(u32)lParam >> 16) & 0xffff)) & 0x0100 == 0x0100);  // (HIWORD(lParam) & KF_EXTENDED) == KF_EXTENDED
-            maybe_send_vkey_event(wParam, false, extended = extended);
+            maybe_send_vkey_event(wParam, false, extended = extended, scan_code = cast(u32)((lParam >> 16) & 0xff));
 
           case WM_SYSCHAR;
               // This is here to prevent beeps when a Alt key combo is pressed. If we don't return 0, windows helpfully emits a beep sound to
@@ -736,12 +736,12 @@ add_move_record :: (hwnd: HWND) {
 #scope_file
 windows_ignore_setcursor_messages := false;
 
-key_down_table : Table(u32, bool);
+key_down_table : Table(u32, Key_Code);
 
-set_key_down_state :: (vkey : u32, is_down: bool) -> was_down:bool {
+set_key_down_state :: (vkey : u32, is_down: bool, key: Key_Code) -> was_down:bool {
     was_down := table_find_pointer(*key_down_table, vkey) != null;
     if is_down && !was_down {
-        table_add(*key_down_table, vkey, true);
+        table_add(*key_down_table, vkey, key);
     } else if was_down && !is_down {
         table_remove(*key_down_table, vkey);
     }
@@ -749,8 +749,9 @@ set_key_down_state :: (vkey : u32, is_down: bool) -> was_down:bool {
     return was_down;
 }
 
-maybe_send_vkey_event :: (vkey: u64, key_down: bool, repeat := false, extended := false) {
-    was_down := set_key_down_state(cast,trunc(u32) vkey, key_down);
+maybe_send_vkey_event :: (vkey: u64, key_down: bool, repeat := false, extended := false, scan_code: u32 = 0) {
+    key := physical_pc_key(scan_code, get_key_code(vkey, extended), extended);
+    was_down := set_key_down_state(cast,trunc(u32) vkey, key_down, key);
     if !key_down && !was_down {
         // redundant key_up event
         return;
@@ -762,7 +763,7 @@ maybe_send_vkey_event :: (vkey: u64, key_down: bool, repeat := false, extended :
         repeat = false;
     }
 
-    send_key_event(get_key_code(vkey, extended), key_down, repeat);
+    send_key_event(key, key_down, repeat);
 }
 
 send_key_event :: (key_code: Key_Code, key_down: bool, repeat := false) {

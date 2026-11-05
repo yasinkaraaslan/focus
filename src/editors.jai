@@ -6,7 +6,7 @@ editors_handle_event :: (event: Input.Event) -> handled: bool {
     editor, buffer := get_active_editor_and_buffer();
     if config.settings.vim_mode && editor && !editor.search_bar.active {
         if event.type == .TEXT_INPUT && editor.vim.mode != .Insert {
-            vim_handle_char(editor, buffer, event.utf32);
+            if editor.vim.find_command then vim_handle_char(editor, buffer, event.utf32);
             return true;
         }
         if event.type == .KEYBOARD && event.key_pressed {
@@ -34,8 +34,14 @@ editors_handle_event :: (event: Input.Event) -> handled: bool {
                     vim_action(editor, buffer, .redo);
                     return true;
                 }
-                // Printable commands are interpreted from text input, respecting the keyboard layout.
-                if event.text_input_count > 0 && !mods.ctrl_pressed && !mods.alt_pressed && !mods.cmd_meta_pressed return false;
+                if !mods.ctrl_pressed && !mods.alt_pressed && !mods.cmd_meta_pressed {
+                    if editor.vim.find_command return false;
+                    char := vim_command_char(event.key_code, mods.shift_pressed);
+                    if char {
+                        vim_handle_char(editor, buffer, char);
+                        return true;
+                    }
+                }
             }
         }
     }
@@ -499,9 +505,14 @@ active_editor_type_char :: (char: u32) {
         }
     }
 
+    rescan_for_lines(buffer);
+    if config.settings.auto_indent_closing_brackets && (char == #char "}" || char == #char ")" || char == #char "]") {
+        auto_indent_closing_brackets(editor, buffer, char);
+        if buffer.dirty then rescan_for_lines(buffer);
+    }
+
     if new_group then new_edit_group(buffer, editor);  // make sure selection operations have a dedicated group
 
-    rescan_for_lines(buffer);
     if line_wrap_is_active(editor) then rescan_for_wrapped_lines(editor, buffer);
 
     if editor.cursors.count > 1 then organise_cursors(editor);
@@ -511,6 +522,68 @@ active_editor_type_char :: (char: u32) {
     editor.cursor_moved = true;
     cursors_start_blinking();
     if !is_empty(editor.search_bar.results) then search_and_update_results(editor, buffer, jump = false);
+}
+
+auto_indent_closing_brackets :: (editor: *Editor, buffer: *Buffer, closing_char: u32) {
+    Indent_Edit :: struct { range: Offset_Range; whitespace: string; matched: bool; }
+    edits := NewArray(editor.cursors.count, Indent_Edit,, allocator = temp);
+    tokens: [] Indentation_Token;
+    tokenized := false;
+    opening_char := get_balancing_char(closing_char, include_closing = true);
+
+    for cursor, i : editor.cursors {
+        pos := cursor.pos - 1;
+        if pos < 0 || buffer.bytes[pos] != closing_char continue;
+        indent := get_real_line_indentation(buffer, offset_to_real_line(buffer, pos));
+        if indent.end != pos continue;
+
+        if !tokenized {
+            tokens = tokenize_for_indentation(buffer);
+            tokenized = true;
+        }
+        if !tokens break;
+
+        closing, token_id := find_next_indentation_token(tokens, pos, pos);
+        if token_id < 0 || closing.type != .close continue;
+
+        balance := 1;
+        for < j : 0 .. token_id-1 {
+            token := tokens[j];
+            if token.type != .open && token.type != .close continue;
+            if token.kind != closing.kind continue;
+            if token.type == .close && buffer.bytes[token.start] == closing_char {
+                balance += 1;
+            } else if token.type == .open && buffer.bytes[token.start] == opening_char {
+                balance -= 1;
+                if balance == 0 {
+                    opening_indent := get_real_line_indentation(buffer, offset_to_real_line(buffer, token.start));
+                    whitespace := copy_temporary_string(get_range_as_string(buffer, opening_indent));
+                    for k : 0 .. i-1 {
+                        if edits[k].matched && edits[k].range.start == opening_indent.start {
+                            whitespace = edits[k].whitespace;
+                            break;
+                        }
+                    }
+                    edits[i] = .{indent, whitespace, true};
+                    break;
+                }
+            }
+        }
+    }
+
+    offset_delta: s32 = 0;
+    for * cursor, i : editor.cursors {
+        edit := edits[i];
+        if edit.matched {
+            range := edit.range;
+            range.start += offset_delta;
+            range.end += offset_delta;
+            replace_range(buffer, range, edit.whitespace);
+            offset_delta += cast(s32) edit.whitespace.count - (range.end - range.start);
+        }
+        cursor.pos += offset_delta;
+        cursor.sel += offset_delta;
+    }
 }
 
 maybe_deactivate_lingering_actions :: () {

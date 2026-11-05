@@ -53,18 +53,33 @@ start_file_watcher :: () {
 file_watcher_process_changes :: () {
     if !watchers.initialized return;
 
+    now := seconds_since_init();
+    if now - watchers.last_buffer_check >= 1 {
+        watchers.last_buffer_check = now;
+        for editor : open_editors {
+            buffer := *open_buffers[editor.buffer_id];
+            if !buffer.has_file || buffer.internal || !file_exists(buffer.file.full_path) continue;
+            if buffer_file_has_changed_on_disk(buffer) then refresh_buffer_from_disk_by_path(buffer.file.full_path);
+        }
+    }
+
     // Check for any changes to the files we care about
     array_reset_keeping_memory(*watchers.project_changes);
     array_reset_keeping_memory(*watchers.external_changes);
 
-    project_files_changed  := process_changes(*watchers.project_watcher);
-    external_files_changed := process_changes(*watchers.external_watcher);
+    project_files_changed, project_pending   := process_changes(*watchers.project_watcher);
+    external_files_changed, external_pending := process_changes(*watchers.external_watcher);
+    if project_pending || external_pending redraw_requested = true;
 
     if file_filter_changes_require_reload(watchers.project_changes, watchers.external_changes) {
-        // The deferred reload owns cache invalidation, after workers finish.
         defer_action_reload_workspace(automatic = true);
         return;
     }
+
+    directory_filters_changed := false;
+    for watchers.project_changes  if file_filter_directory_change(it) { directory_filters_changed = true; break; }
+    for watchers.external_changes if file_filter_directory_change(it) { directory_filters_changed = true; break; }
+    if directory_filters_changed forget_ignore_table();
 
     if project_files_changed || external_files_changed {
         using watchers;
@@ -73,12 +88,6 @@ file_watcher_process_changes :: () {
         for project_changes   print("Project change: %\n", it);
         for external_changes  print("External change: %\n", it);
 
-        // Most commonly we will receive only a single MODIFIED event for a single file (after saving a buffer)
-        // In this case we don't want to rescan anything, but only if no other events were received in the same frame
-        if project_changes.count == 1 && project_changes[0].events == .MODIFIED && !is_directory(project_changes[0].full_path) {
-            change := pop(*project_changes);
-            if should_watch_file_for_changes(change.full_path) then refresh_buffer_from_disk_by_path(path = change.full_path);
-        }
         for change : external_changes {
             if file_is_watched(change.full_path) {
                 refresh_buffer_from_disk_by_path(path = change.full_path);
@@ -115,14 +124,14 @@ file_watcher_process_changes :: () {
         }
 
         for change : project_changes {
-            if find_buffer_id_by_path(change.full_path) >= 0 {
-                refresh_buffer_from_disk_by_path(change.full_path);
-            }
             dir: string;
             is_directory, success := is_directory(change.full_path);
             if success && is_directory {
+                if !should_descend_into_dir(change.full_path) continue;
                 dir = change.full_path;  // we got an event for a dir within the project
-            } else if should_watch_file_for_changes(change.full_path) {
+            } else {
+                if should_watch_file_for_changes(change.full_path) then refresh_buffer_from_disk_by_path(change.full_path);
+                if success continue;
                 dir = get_parent_dir_path(change.full_path);
             }
             if dir && dir_is_within_project(dir) then maybe_add_to_queue(*dirs_to_scan, dir);
@@ -145,7 +154,7 @@ file_watcher_process_changes :: () {
 
             if !should_watch_file_for_changes(file.full_name) return;
 
-            refresh_buffer_from_disk_by_path(path = file.full_name);
+            refresh_buffer_from_disk_by_path(path = file.full_name, check_modtime = true);
         }
 
         if dirs_to_scan {
@@ -205,9 +214,18 @@ file_is_watched :: (file_path: string) -> bool {
 }
 
 file_filter_changes_require_reload :: (project_changes: [] File_Change, external_changes: [] File_Change) -> bool {
-    for project_changes  if is_file_filter_control_path(it.full_path) || file_filter_directory_change(it) return true;
-    for external_changes if is_file_filter_control_path(it.full_path) || file_filter_directory_change(it) return true;
+    for project_changes  if file_filter_control_change(it) return true;
+    for external_changes if file_filter_control_change(it) return true;
     return false;
+}
+
+file_filter_control_change :: (change: File_Change) -> bool {
+    if !is_file_filter_control_path(change.full_path) return false;
+    _, __, ___, name := path_decomp(change.full_path);
+    if platform_path_equals(name, ".git") &&
+       is_directory(change.full_path) &&
+       !(change.events & (.ADDED | .REMOVED | .MOVED)) return false;
+    return true;
 }
 
 should_watch_file_for_changes :: inline (path: string) -> bool {
@@ -275,6 +293,7 @@ file_watch_threadproc :: (group: *Thread_Group, thread: *Thread, work: *void) ->
 
 watchers : struct {
     initialized := false;
+    last_buffer_check: float64;
 
     project_watcher:  File_Watcher;   // recursive
     external_watcher: File_Watcher;   // non-recursive

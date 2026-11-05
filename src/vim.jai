@@ -510,3 +510,20 @@ vim_change_to_end :: (editor: *Editor, buffer: *Buffer) {
     for * editor.cursors { it.sel = it.pos; }
     vim_prepare_insert(editor, buffer, .At_Cursor);
 }
+
+// Shift affects command case/symbols, independently of layout and Caps Lock.
+vim_command_char :: (key: Input.Key_Code, shift: bool) -> u32 {
+    char := cast(u32) key;
+    // Input names the physical equals/plus key Plus for existing keymaps.
+    if char == #char "+" char = #char "=";
+    if char >= #char "A" && char <= #char "Z" {
+        return ifx shift then char else char + 32;
+    }
+    if char < 32 || char >= 127 return 0;
+    if shift {
+        plain   := "`1234567890-=[]\\;',./";
+        shifted := "~!@#$%^&*()_+{}|:\"<>?";
+        for plain if char == it return shifted[it_index];
+    }
+    return char;
+}

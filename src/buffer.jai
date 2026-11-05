@@ -802,7 +802,25 @@ save_buffer_to_file :: (buffer: *Buffer, buffer_id: s64, file_path: string) {
         save_buffer(buffer, buffer_id, overwrite = true);
     } else {
         // We're "saving as", in which case we want to create a new buffer and also keep the current buffer
-        buffer_contents := get_buffer_contents_for_writing(buffer);
+        if buffer.dirty rescan_for_lines(buffer);
+
+        // Use the destination's settings without changing the original buffer.
+        save_as_buffer := buffer.*;
+        save_as_buffer.content_lock = .{};
+        init_buffer(*save_as_buffer);
+        defer destroy(*save_as_buffer.content_lock);
+        save_as_buffer.file = get_file_info_from_full_path(file_path);
+        defer free(save_as_buffer.file.full_path);
+        save_as_buffer.has_file = true;
+        save_as_buffer.lang = get_lang_from_path(file_path);
+        save_as_buffer.settings = null;
+        recalculate_settings(*save_as_buffer);
+        defer if save_as_buffer.settings then free(save_as_buffer.settings,, focus_allocator);
+
+        buffer_contents, is_crlf := get_buffer_contents_for_writing(save_as_buffer);
+        if get_settings(save_as_buffer).insert_final_newline_on_save && buffer_contents && !ends_with(buffer_contents, cast(u8) #char "\n") {
+            buffer_contents = tprint("%1%2", buffer_contents, ifx is_crlf then "\r\n" else "\n");
+        }
         success := write_entire_file(file_path, buffer_contents);
 
         if !success {
@@ -1474,7 +1492,7 @@ detect_and_set_indentation :: (using buffer: *Buffer) -> enum { success; error; 
     }
 }
 
-refresh_buffer_from_disk_by_path :: (path: string) {
+refresh_buffer_from_disk_by_path :: (path: string, check_modtime := false) {
     is_dir, is_dir_success := is_directory(path);
     if is_dir || !is_dir_success || !file_exists(path) {
         // Either this is a dir, or a deleted dir, or a deleted file.
@@ -1509,7 +1527,7 @@ refresh_buffer_from_disk_by_path :: (path: string) {
     buffer.deleted = false;
     open_file_dialog.should_refresh_entries = true;
 
-    if !buffer.num_editors_open && !buffer_file_has_changed_on_disk(buffer) return;
+    if check_modtime && !buffer.num_editors_open && !buffer_file_has_changed_on_disk(buffer) return;
 
     // Buffer may have changed on disk - reload and compare hashes to be sure
     assert(platform_path_equals(path, buffer.file.full_path));
