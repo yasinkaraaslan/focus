@@ -2309,10 +2309,28 @@ draw_status_bar :: (using editor: Editor, buffer: Buffer, pane: *Editor_Pane, ed
 
     if config.settings.vim_mode {
         label := "NORMAL";
-        if vim.mode == .Insert then label = "INSERT";
-        if vim.mode == .Visual then label = "VISUAL";
-        width = xx Simp.draw_text(font_ui_bold, xx pen.x, xx pen.y, tprint("[%] ", label), xx Color.UI_DEFAULT);
-        pen.x += width + padding;
+        background := status_bar_bg_color;
+        foreground := Color.UI_DEFAULT;
+        if vim.mode == .Insert {
+            label = "INSERT";
+            background = .CURSOR;
+            foreground = .CHAR_UNDER_CURSOR;
+        }
+        if vim.mode == .Visual {
+            label = "VISUAL";
+            background = .SELECTION_ACTIVE;
+        }
+        // Reserve the widest label even when the UI font is proportional.
+        mode_width := 0.0;
+        for mode_label: string.["NORMAL", "INSERT", "VISUAL"] {
+            mode_width = max(mode_width, cast(float) Simp.get_text_width(font_ui_bold, mode_label));
+        }
+        width = xx Simp.get_text_width(font_ui_bold, label);
+        badge := Rect.{ pen.x, status_bar_rect.y + padding / 2, mode_width + padding * 4, status_bar_rect.h - padding };
+        if vim.mode != .Normal then draw_rect(badge, background);
+        Simp.draw_text(font_ui_bold, xx (pen.x + (badge.w - width) / 2), xx pen.y, label, xx foreground);
+        pen.x += badge.w + padding * 2;
+        width = 0;
     }
 
     // Draw file name and path

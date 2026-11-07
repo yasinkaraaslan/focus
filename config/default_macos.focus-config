@@ -429,6 +429,8 @@ region_success:                         226022FF
 region_warning:                         986032FF
 region_error:                           772222FF
 region_heredoc:                         090e12FF
+region_addition:                        2260224C
+region_deletion:                        7722224C
 
 selection_active:                       1C4449FF
 selection_inactive:                     1C44497F
@@ -488,6 +490,8 @@ code_number:                            D699B5FF
 code_error:                             FF0000FF
 code_warning:                           E4D97DFF
 code_highlight:                         E4D97DFF
+code_addition:                          33B333FF
+code_deletion:                          E64D4DFF
 
 code_comment:                           87919DFF
 code_multiline_comment:                 87919DFF

@@ -4258,8 +4258,10 @@ join_lines :: (editor: *Editor, buffer: *Buffer, in_between := " ") {
             delete_offset += trimmed.count + in_between.count;
             add_deletion(right);
         }
-        append(*b, "\n");
-        add_deletion(-1);
+        if ends_with(range_str, "\n") {
+            append(*b, "\n");
+            add_deletion(-1);
+        }
 
         new_str := builder_to_string(*b,, allocator = temp);
         replace_range(buffer, range.range, new_str);

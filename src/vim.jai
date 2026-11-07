@@ -5,6 +5,9 @@ Vim_State :: struct {
     pending: u32;
     count: s32;
     operator_count: s32;
+    object_prefix: u32;
+    object_operator: u32;
+    object_count: s32;
     find_command: u32;
     find_operator: u32;
     find_count: s32;
@@ -78,6 +81,17 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
         return;
     }
 
+    if object_prefix {
+        around := object_prefix == #char "a";
+        op := object_operator;
+        times := object_count;
+        object_prefix = 0;
+        object_operator = 0;
+        object_count = 0;
+        vim_select_object(editor, buffer, char, around, times, op);
+        return;
+    }
+
     if char >= #char "0" && char <= #char "9" && (char != #char "0" || count > 0) {
         count = min(cast(s32) 1000, count * 10 + cast(s32)(char - #char "0"));
         return;
@@ -102,6 +116,13 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
 
     if op == #char "g" {
         if char == #char "g" then vim_action(editor, buffer, .jump_to_file_start, mode == .Visual);
+        return;
+    }
+
+    if (op || mode == .Visual) && (char == #char "i" || char == #char "a") {
+        object_prefix = char;
+        object_operator = op;
+        object_count = times;
         return;
     }
 
@@ -168,18 +189,48 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
         case #char "$"; movement = .jump_to_line_end;
         case #char "G"; movement = .jump_to_file_end;
     }
-    if char == #char "h" || char == #char "l" || char == #char "w" || char == #char "b" {
+    if char == #char "h" || char == #char "l" || char == #char "w" || char == #char "b" ||
+       char == #char "W" || char == #char "B" || char == #char "e" || char == #char "E" {
         for * cursor : editor.cursors {
-            for 1..times {
+            // Vim treats cw/cW on text like ce/cE, leaving following spaces alone.
+            motion := char;
+            if op == #char "c" && cursor.pos < buffer.bytes.count && !ascii_is_space(buffer.bytes[cursor.pos]) {
+                if char == #char "w" then motion = #char "e";
+                if char == #char "W" then motion = #char "E";
+            }
+            for step: 1..times {
                 start := get_real_line_start_offset(buffer, offset_to_real_line(buffer, cursor.pos));
                 end := get_real_line_end_offset(buffer, offset_to_real_line(buffer, cursor.pos));
                 if char == #char "h" && cursor.pos > start then cursor.pos = prev_char_offset(buffer.bytes, cursor.pos);
                 if char == #char "l" && cursor.pos < end then cursor.pos = next_char_offset(buffer.bytes, cursor.pos);
-                if char == #char "w" then cursor.pos = vim_word_forward(buffer, cursor.pos);
-                if char == #char "b" then cursor.pos = vim_word_backward(buffer, cursor.pos);
+                if motion == #char "w" || motion == #char "W" then cursor.pos = vim_word_forward(buffer, cursor.pos, motion == #char "W");
+                if motion == #char "b" || motion == #char "B" then cursor.pos = vim_word_backward(buffer, cursor.pos, motion == #char "B");
+                if motion == #char "e" || motion == #char "E" then cursor.pos = vim_word_end(buffer, cursor.pos, motion == #char "E", include_current = motion != char && step == 1);
+            }
+            if op && (motion == #char "e" || motion == #char "E") && cursor.pos >= cursor.sel && cursor.pos < buffer.bytes.count {
+                cursor.pos = next_char_offset(buffer.bytes, cursor.pos);
             }
             cursor.col_wanted = -1;
             if !op && mode != .Visual then cursor.sel = cursor.pos;
+        }
+        editor.cursor_moved = true;
+        editor.refresh_selection = true;
+        cursors_start_blinking();
+    } else if char == #char "%" {
+        vim_prepare_pair_tokens(buffer);
+        for * cursor : editor.cursors {
+            target, found := vim_matching_pair(buffer, cursor.pos);
+            if !found continue;
+            if op {
+                // % is inclusive in either direction.
+                cursor.sel = max(cursor.pos, target);
+                cursor.pos = min(cursor.pos, target);
+                cursor.sel = next_char_offset(buffer.bytes, cursor.sel);
+            } else {
+                cursor.pos = target;
+                if mode != .Visual then cursor.sel = target;
+            }
+            cursor.col_wanted = -1;
         }
         editor.cursor_moved = true;
         editor.refresh_selection = true;
@@ -242,8 +293,43 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
             case #char "A";
                 vim_prepare_insert(editor, buffer, .Line_End);
                 mode = .Insert;
+            case #char "J";
+                new_edit_group(buffer, editor);
+                before := NewArray(editor.cursors.count, Cursor,, allocator = temp);
+                for * cursor, i: editor.cursors {
+                    before[i] = cursor.*;
+                    if mode != .Visual {
+                        line := offset_to_real_line(buffer, cursor.pos);
+                        last := min(line + max(cast(s32) 2, times) - 1, cast(s32) buffer.line_starts.count - 1);
+                        cursor.sel = get_real_line_start_offset(buffer, line);
+                        cursor.pos = get_real_line_end_offset(buffer, last);
+                    }
+                }
+                undo_count := buffer.undos.count;
+                vim_action(editor, buffer, .join_lines);
+                new_edit_group(buffer, editor);
+                if buffer.undos.count > undo_count {
+                    group := peek_pointer(buffer.undos);
+                    if group.cursors_before.count == before.count {
+                        for cursor, i: before { group.cursors_before[i] = cursor; }
+                    }
+                } else if editor.cursors.count == before.count {
+                    for * cursor, i: editor.cursors { cursor.* = before[i]; }
+                }
+                if mode == .Visual then mode = .Normal;
             case #char "o"; #through;
             case #char "O";
+                if mode == .Visual {
+                    for * cursor : editor.cursors {
+                        old := cursor.pos;
+                        cursor.pos = cursor.sel;
+                        cursor.sel = old;
+                        cursor.col_wanted = -1;
+                    }
+                    editor.cursor_moved = true;
+                    editor.refresh_selection = true;
+                    return;
+                }
                 new_edit_group(buffer, editor);
                 action: Action_Editors = .new_line_below_without_breaking;
                 if char == #char "O" then action = .new_line_above_without_breaking;
@@ -311,16 +397,16 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
 }
 
 // Whitespace, keyword characters and punctuation form separate Vim word groups.
-vim_word_class :: (byte: u8) -> int {
+vim_word_class :: (byte: u8, big := false) -> int {
     if ascii_is_space(byte) return 0;
-    if ascii_is_alnum(byte) || byte >= 128 return 1;
+    if big || ascii_is_alnum(byte) || byte == #char "_" || byte >= 128 return 1;
     return 2;
 }
 
-vim_word_forward :: (buffer: Buffer, pos: s32) -> s32 {
+vim_word_forward :: (buffer: Buffer, pos: s32, big := false) -> s32 {
     if pos >= buffer.bytes.count return pos;
-    kind := vim_word_class(buffer.bytes[pos]);
-    while pos < buffer.bytes.count && vim_word_class(buffer.bytes[pos]) == kind {
+    kind := vim_word_class(buffer.bytes[pos], big);
+    while pos < buffer.bytes.count && vim_word_class(buffer.bytes[pos], big) == kind {
         pos = next_char_offset(buffer.bytes, pos);
     }
     while pos < buffer.bytes.count && vim_word_class(buffer.bytes[pos]) == 0 {
@@ -329,19 +415,243 @@ vim_word_forward :: (buffer: Buffer, pos: s32) -> s32 {
     return pos;
 }
 
-vim_word_backward :: (buffer: Buffer, pos: s32) -> s32 {
+vim_word_backward :: (buffer: Buffer, pos: s32, big := false) -> s32 {
     if pos == 0 return pos;
     pos = prev_char_offset(buffer.bytes, pos);
     while pos > 0 && vim_word_class(buffer.bytes[pos]) == 0 {
         pos = prev_char_offset(buffer.bytes, pos);
     }
-    kind := vim_word_class(buffer.bytes[pos]);
+    kind := vim_word_class(buffer.bytes[pos], big);
     while pos > 0 {
         previous := prev_char_offset(buffer.bytes, pos);
-        if vim_word_class(buffer.bytes[previous]) != kind break;
+        if vim_word_class(buffer.bytes[previous], big) != kind break;
         pos = previous;
     }
     return pos;
+}
+
+vim_word_end :: (buffer: Buffer, pos: s32, big := false, include_current := false) -> s32 {
+    if pos >= buffer.bytes.count return pos;
+    // Ordinary e advances from a word's last character; cw must still change it.
+    if !include_current then pos = next_char_offset(buffer.bytes, pos);
+    while pos < buffer.bytes.count && ascii_is_space(buffer.bytes[pos]) {
+        pos = next_char_offset(buffer.bytes, pos);
+    }
+    if pos >= buffer.bytes.count return xx buffer.bytes.count;
+    kind := vim_word_class(buffer.bytes[pos], big);
+    while true {
+        next := next_char_offset(buffer.bytes, pos);
+        if next >= buffer.bytes.count || vim_word_class(buffer.bytes[next], big) != kind return pos;
+        pos = next;
+    }
+    return pos;
+}
+
+// Character ranges use the editor's half-open selection convention.
+vim_object_range :: (buffer: Buffer, origin: s32, object: u32, around: bool, times: s32) -> range_start: s32, range_end: s32, found: bool {
+    if origin >= buffer.bytes.count return origin, origin, false;
+    if object == #char "w" || object == #char "W" {
+        big := object == #char "W";
+        kind := vim_word_class(buffer.bytes[origin], big);
+        on_space := kind == 0;
+        start := origin;
+        while start > 0 {
+            previous := prev_char_offset(buffer.bytes, start);
+            if vim_word_class(buffer.bytes[previous], big) != kind break;
+            start = previous;
+        }
+        end := origin;
+        for step: 1..times {
+            // iw counts whitespace runs; aw counts only words.
+            if around {
+                while end < buffer.bytes.count && ascii_is_space(buffer.bytes[end]) {
+                    end = next_char_offset(buffer.bytes, end);
+                }
+                if end >= buffer.bytes.count break;
+            }
+            kind = vim_word_class(buffer.bytes[end], big);
+            while end < buffer.bytes.count && vim_word_class(buffer.bytes[end], big) == kind {
+                end = next_char_offset(buffer.bytes, end);
+            }
+            if end >= buffer.bytes.count break;
+        }
+        if around && !on_space {
+            // Prefer trailing horizontal space; at EOL use preceding space.
+            after := end;
+            while after < buffer.bytes.count && (buffer.bytes[after] == #char " " || buffer.bytes[after] == #char "\t") {
+                after += 1;
+            }
+            if after > end {
+                end = after;
+            } else {
+                while start > 0 && (buffer.bytes[start - 1] == #char " " || buffer.bytes[start - 1] == #char "\t") {
+                    start -= 1;
+                }
+            }
+        }
+        return start, end, true;
+    }
+
+    if object == #char "\"" || object == #char "'" || object == #char "`" {
+        if times != 1 return origin, origin, false;
+        line := offset_to_real_line(buffer, origin);
+        left: s32 = -1;
+        line_start := get_real_line_start_offset(buffer, line);
+        line_end := get_real_line_end_offset(buffer, line);
+        for i: line_start .. line_end - 1 {
+            if buffer.bytes[i] != object continue;
+            // An odd number of backslashes escapes a quote.
+            slashes := 0;
+            preceding := i;
+            while preceding > line_start && buffer.bytes[preceding - 1] == #char "\\" {
+                slashes += 1;
+                preceding -= 1;
+            }
+            if slashes % 2 != 0 continue;
+            if left < 0 {
+                left = i;
+            } else {
+                if i >= origin {
+                    return cast(s32) (left + (ifx around then 0 else 1)), cast(s32) (i + (ifx around then 1 else 0)), true;
+                }
+                left = -1;
+            }
+        }
+        return origin, origin, false;
+    }
+
+    open: u8;
+    close: u8;
+    if object == {
+        case #char "("; #through;
+        case #char ")"; #through;
+        case #char "b"; open = #char "("; close = #char ")";
+        case #char "["; #through;
+        case #char "]"; open = #char "["; close = #char "]";
+        case #char "{"; #through;
+        case #char "}"; #through;
+        case #char "B"; open = #char "{"; close = #char "}";
+        case; return origin, origin, false;
+    }
+    // Closing pairs are encountered from innermost to outermost around origin.
+    stack: [..] s32;
+    stack.allocator = temp;
+    remaining := times;
+    for byte, i: buffer.bytes {
+        if !vim_pair_delimiter(buffer, cast(s32) i) continue;
+        if byte == open then array_add(*stack, cast(s32) i);
+        if byte != close || stack.count == 0 continue;
+        left := stack[stack.count - 1];
+        stack.count -= 1;
+        if left > origin || i < origin continue;
+        remaining -= 1;
+        if remaining == 0 return cast(s32) (left + (ifx around then 0 else 1)), cast(s32) (i + (ifx around then 1 else 0)), true;
+    }
+    return origin, origin, false;
+}
+
+vim_select_object :: (editor: *Editor, buffer: *Buffer, object: u32, around: bool, times: s32, op: u32) {
+    if object != #char "w" && object != #char "W" && object != #char "\"" && object != #char "'" && object != #char "`" {
+        vim_prepare_pair_tokens(buffer);
+    }
+    before := NewArray(editor.cursors.count, Cursor,, allocator = temp);
+    any_match := false;
+    any_text := false;
+    for * cursor, i: editor.cursors {
+        before[i] = cursor.*;
+        start, end, found := vim_object_range(buffer, cursor.pos, object, around, times);
+        if !found {
+            if op then cursor.sel = cursor.pos;
+            continue;
+        }
+        any_match = true;
+        cursor.sel = start;
+        cursor.pos = end;
+        cursor.col_wanted = -1;
+        if start != end then any_text = true;
+    }
+    if !any_match return;
+    editor.cursor_moved = true;
+    editor.refresh_selection = true;
+    cursors_start_blinking();
+    if !op return;
+
+    // Failed or empty ranges must never fall through to delete_right_char.
+    if any_text {
+        new_edit_group(buffer, editor);
+        vim_action(editor, buffer, .copy);
+        if op != #char "y" {
+            undo_count := buffer.undos.count;
+            vim_action(editor, buffer, .delete_right_char);
+            new_edit_group(buffer, editor);
+            if buffer.undos.count > undo_count {
+                group := peek_pointer(buffer.undos);
+                if group.cursors_before.count == before.count {
+                    for cursor, i: before { group.cursors_before[i] = cursor; }
+                }
+            }
+        }
+    }
+    for * cursor, i: editor.cursors {
+        if op == #char "y" then cursor.* = before[i];
+        cursor.sel = cursor.pos;
+    }
+    // ci() also enters Insert when the pair is empty.
+    if op == #char "c" then editor.vim.mode = .Insert;
+}
+
+vim_prepare_pair_tokens :: (buffer: *Buffer) {
+    if buffer.was_dirty_during_frame || buffer_needs_tokenizing(buffer.*) then retokenize(buffer);
+}
+
+// Use language tokens when available so delimiters in strings and comments
+// cannot close a surrounding code block. Plain text still supports raw pairs.
+vim_pair_delimiter :: (buffer: Buffer, pos: s32) -> bool {
+    if buffer.tokens.count != buffer.bytes.count return true;
+    if buffer.tokens[pos] == {
+        case .string_literal; #through;
+        case .multiline_string; #through;
+        case .raw_string; #through;
+        case .char_literal; #through;
+        case .comment; #through;
+        case .multiline_comment; #through;
+        case .comment_highlight1; #through;
+        case .comment_highlight2; #through;
+        case .comment_highlight3; #through;
+        case .comment_highlight4; return false;
+    }
+    return true;
+}
+
+vim_matching_pair :: (buffer: Buffer, origin: s32) -> target: s32, found: bool {
+    line_end := get_real_line_end_offset(buffer, offset_to_real_line(buffer, origin));
+    for i: origin .. line_end - 1 {
+        if !vim_pair_delimiter(buffer, i) continue;
+        byte := buffer.bytes[i];
+        open_index := find_index_from_left("([{", byte);
+        close_index := find_index_from_left(")]}", byte);
+        if open_index < 0 && close_index < 0 continue;
+        forward := open_index >= 0;
+        pair_index := ifx forward then open_index else close_index;
+        counterpart := (ifx forward then ")]}" else "([{")[pair_index];
+        balance := 1;
+        pos := i;
+        while true {
+            if forward {
+                pos += 1;
+                if pos >= buffer.bytes.count break;
+            } else {
+                if pos == 0 break;
+                pos -= 1;
+            }
+            if !vim_pair_delimiter(buffer, pos) continue;
+            if buffer.bytes[pos] == byte then balance += 1;
+            if buffer.bytes[pos] == counterpart then balance -= 1;
+            if balance == 0 return pos, true;
+        }
+        return origin, false;
+    }
+    return origin, false;
 }
 
 // Find only within the current real line and step over whole UTF-8 characters.
