@@ -579,7 +579,7 @@ apply_position :: (x11_display: *X11_Display, widget: X11.Window, from: X11.Wind
     dropper_typelist  := x11_display.drop_info.user_typelist;
     supported_actions := x11_display.drop_info.user_actions;
 
-    if dropper_typelist.count > 0 {
+    if dropper_typelist {
         // find a correlation:
         for j: dropper_typelist {
             for i: typelist {
@@ -597,7 +597,7 @@ apply_position :: (x11_display: *X11_Display, widget: X11.Window, from: X11.Wind
     // not supported, so return false
     if !supported_type  return false;
 
-    if supported_actions.count > 0 {
+    if supported_actions {
         for supported_actions {
             if action == it {
                 supported_action = action;
@@ -927,7 +927,7 @@ maybe_handle_xdnd_drop_events :: (x11_display: *X11_Display, xevent: *X11.XEvent
         X11.XNextEvent(display, xevent);
     }
 
-    if drop_info.data.count > 0 {
+    if drop_info.data {
         files: [..] string;
 
         p := "";

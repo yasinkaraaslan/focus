@@ -295,7 +295,7 @@ wl_event_loop_step :: (display: *Wayland_Display, timeout: s32) -> bool {
 
     if wl_display_get_error(dpy) return true;
 
-    return (wlev && (display.base.events_this_frame.count > 0)) || tev;
+    return (wlev && (display.base.events_this_frame)) || tev;
 }
 
 wl_wait_for_events :: (display: *Display) {

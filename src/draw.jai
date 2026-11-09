@@ -857,6 +857,10 @@ get_editor_subrects :: (editor_id: s64, main_area: Rect, has_status_bar: bool) -
         status_bar_rect, rect = cut_top(main_area, ifx has_status_bar then status_bar_height else 0);
     }
 
+    if editor.search_bar.active && editor.search_bar.mode == .vim {
+        _, rect = cut_bottom(rect, vim_search_bar_height());
+    }
+
     max_width := cast(float) buffer_settings.max_editor_width * dpi_scale;
     if max_width > 0 && rect.w > max_width && !is_build_panel(editor_id) {
         rect.x += (rect.w - max_width) / 2;
@@ -905,6 +909,7 @@ draw_editor :: (editor_id: s64, main_area: Rect, ui_id: Ui_Id, pane: *Editor_Pan
     tab_size := get_buffer_tab_size(buffer);
 
     scrollbar_id := get_ui_id_from_loc(parent_id = ui_id);
+    vim_search_input_id := get_ui_id_from_loc(parent_id = ui_id);
 
     rect, status_bar_rect, line_number_panel := get_editor_subrects(editor_id, main_area, has_status_bar);
 
@@ -914,6 +919,7 @@ draw_editor :: (editor_id: s64, main_area: Rect, ui_id: Ui_Id, pane: *Editor_Pan
 
     active_editor_id := get_active_editor_id();
     editor_is_active := editor_id == active_editor_id && Input.input_application_has_focus;
+    hide_editor_cursors := search_bar_is_open(editor) && search_bar.mode != .vim;
 
     // Calculate text origin in screen coordinates
     text_offset := get_text_offset();
@@ -1129,6 +1135,14 @@ draw_editor :: (editor_id: s64, main_area: Rect, ui_id: Ui_Id, pane: *Editor_Pan
         selection_mode.min_range.start = 0;
         selection_mode.min_range.end   = 0;
         if new_cursor_just_created_using_mouse && to_float64_seconds(frame_time - last_cursor_created_using_mouse_at) >= (2 * DOUBLE_CLICK_SPEED) then new_cursor_just_created_using_mouse = false;
+    }
+
+    // Leaving Vim search by clicking another UI element also applies after n,
+    // when only the highlights remain. Preserve the caret chosen by the click.
+    if search_bar.mode == .vim && ui.active != .none &&
+       ui.active != vim_search_input_id && !is_child(ui.active, vim_search_input_id) && ui.active != scrollbar_id {
+        if search_bar.active then redraw_requested = true;
+        close_search_bar(editor);
     }
 
     // Get the coordinates of all cursors
@@ -1432,7 +1446,7 @@ draw_editor :: (editor_id: s64, main_area: Rect, ui_id: Ui_Id, pane: *Editor_Pan
 
         cursors_active := editor_is_active && active_global_widget == .editors;
 
-        if !search_bar_is_open(editor) {
+        if !hide_editor_cursors {
             Simp.set_shader_for_rects();
             for cursor : cursors {
                 if has_selection(cursor) {
@@ -1544,10 +1558,10 @@ draw_editor :: (editor_id: s64, main_area: Rect, ui_id: Ui_Id, pane: *Editor_Pan
 
             draw_range(anim.coords_range, editor, buffer, visible_lines_start, visible_lines_end, text_origin, Color.PASTE_ANIMATION, alpha = xx (1 - t));
         }
-        if editor_paste_animations.count > 0 then redraw_requested = true;
+        if editor_paste_animations then redraw_requested = true;
 
         // Draw inactive cursors before text
-        if !cursors_active && !search_bar_is_open(editor) && buffer_settings.cursor_as_block && !as_build_panel {
+        if !cursors_active && !hide_editor_cursors && buffer_settings.cursor_as_block && !as_build_panel {
             Simp.set_shader_for_rects();
             for cursor : cursors {
                 if cursor.pos < visible_offset_range.start || cursor.pos > visible_offset_range.end continue;
@@ -1613,7 +1627,7 @@ draw_editor :: (editor_id: s64, main_area: Rect, ui_id: Ui_Id, pane: *Editor_Pan
         // Draw cursors when they are active
         cursor_as_block := buffer_settings.cursor_as_block && !as_build_panel;
         cursor_width := ifx cursor_as_block then char_x_advance else 2 * dpi_scale;
-        cursors_are_visible := should_draw_cursors() && !search_bar_is_open(editor);
+        cursors_are_visible := (should_draw_cursors() || search_bar_is_open(editor)) && !hide_editor_cursors;
 
         if cursors_active {
             Simp.set_shader_for_rects();
@@ -1757,7 +1771,7 @@ draw_editor :: (editor_id: s64, main_area: Rect, ui_id: Ui_Id, pane: *Editor_Pan
     }
 
     // Draw word completion
-    if editor_is_active && word_complete.results.count {
+    if editor_is_active && word_complete.results {
 
         padding           := floor(10 * dpi_scale);
         item_delta_scaler := line_height + 5 * dpi_scale;
@@ -1826,10 +1840,10 @@ draw_editor :: (editor_id: s64, main_area: Rect, ui_id: Ui_Id, pane: *Editor_Pan
 
     // Draw search bar
     if active_global_widget != .editors && !(active_global_widget == .build_panel && as_build_panel) {
-        search_bar.active = false;
+        close_search_bar(editor);
     }
 
-    if search_bar_is_open(editor) {
+    if search_bar_is_open(editor) && search_bar.mode != .vim {
         using search_bar;
 
         input_id            := get_ui_id_from_loc(parent_id = ui_id);
@@ -2090,7 +2104,7 @@ draw_editor :: (editor_id: s64, main_area: Rect, ui_id: Ui_Id, pane: *Editor_Pan
                         end   = min(line_range.end, line_start + xx byte_offset + 4 * max_code_chars),  // max 4 bytes per char
                     };
                     line_str := get_range_as_string(buffer, visible_offset_range);
-                    if line_str.count > 0 {
+                    if line_str {
                         tokens := to_view(buffer.tokens, visible_offset_range.start, line_str.count);
                         code_lines: [1] Simp.Code_Line;
                         code_lines[0] = .{ line = line_str, tab_spaces = 0, tokens = xx,force tokens };
@@ -2126,9 +2140,37 @@ draw_editor :: (editor_id: s64, main_area: Rect, ui_id: Ui_Id, pane: *Editor_Pan
         file_info_offset = draw_status_bar(editor, buffer, pane, ui_id, status_bar_rect, status_bar_bg_color, buffer_settings, text_offset, cursors_off_screen);
     }
 
+    // Keep the command line above the status bar's shadow.
+    if search_bar_is_open(editor) && search_bar.mode == .vim {
+        bar_rect := cut_bottom(main_area, vim_search_bar_height());
+        if has_status_bar && buffer_settings.status_bar_position == .bottom then bar_rect.y += status_bar_height;
+        draw_vim_search_bar(editor_id, editor, bar_rect, vim_search_input_id, editor_is_active);
+    }
+
     if should_show_pane_editors(pane) {
         draw_pane_editors(pane, main_area, text_offset, file_info_offset);
     }
+}
+
+vim_search_bar_height :: () -> float {
+    return font_ui_line_height + floor(16 * dpi_scale);
+}
+
+draw_vim_search_bar :: (editor_id: s64, editor: *Editor, rect: Rect, input_id: Ui_Id, editor_is_active: bool) {
+    using bar := *editor.search_bar;
+    padding := floor(4 * dpi_scale);
+    draw_rect(rect, Color.BACKGROUND_0, extra_draw_info = .{is_background = true});
+    content_rect := shrink(rect, padding);
+    status := "";
+    if !is_empty(input.text) {
+        status = ifx !regex_is_valid then "Invalid pattern" else ifx !results then "Pattern not found" else tprint("%/%", selected_result + 1, results.count);
+    }
+    status_width := cast(float) Simp.prepare_text(font_ui_small, status) + padding * 2;
+    status_rect, input_rect := cut_right(content_rect, min(status_width, content_rect.w * 0.5));
+    Simp.draw_prepared_text(font_ui_small, xx (status_rect.x + padding), xx (rect.y + (rect.h - font_ui_small.character_height) / 2), color = xx Color.UI_DIM);
+    prompt := ifx vim_prompt_backward then "? " else "/ ";
+    became_active := draw_text_input(*input, input_rect, input_id, active = editor_is_active, color = ifx regex_is_valid || !input.text then Color.UI_DEFAULT else Color.UI_ERROR_BRIGHT, prefix = prompt);
+    if became_active then make_editor_active(editor_id);
 }
 
 draw_pane_editors :: (pane: *Editor_Pane, main_area: Rect, text_offset: Vector2, file_info_offset: float) {
@@ -2702,7 +2744,7 @@ draw_open_file_dialog :: () {
                             // Shift + Click = Open dir in explorer
                             path_chunks_trimmed := array_view(path_chunks, 1, it_index);
                             dir_path: string = ---;
-                            if path_chunks_trimmed.count == 0 dir_path = root_dir;
+                            if !path_chunks_trimmed dir_path = root_dir;
                             else dir_path = tprint("%/%", root_dir, join(..path_chunks_trimmed, separator = "/",, temp));
                             platform_open_in_explorer(dir_path);
                         } else {
@@ -3669,7 +3711,7 @@ draw_finder :: () {
                     end   = min(line_range.end, line_start + xx byte_offset + 4 * max_code_chars),  // max 4 bytes per char
                 };
                 line_str := get_range_as_string(buffer, visible_range);
-                if line_str.count > 0 {
+                if line_str {
                     tokens := to_view(buffer.tokens, visible_range.start, line_str.count);
                     code_lines: [1] Simp.Code_Line;
                     code_lines[0] = .{ line = line_str, tab_spaces = 0, tokens = xx,force tokens };
@@ -3876,7 +3918,7 @@ draw_range_full_width_lines :: (range: Coords_Range, editor_rect: Rect, visible_
     }
 }
 
-draw_text_input :: (using input: *Text_Input, rect_: Rect, ui_id: Ui_Id, active := false, label: string = "", font: *Simp.Dynamic_Font = null, color := Color.UI_DEFAULT, margin_left := 1.0, margin_right := 1.0, progress_bar_value := -1.0) -> became_active := false {
+draw_text_input :: (using input: *Text_Input, rect_: Rect, ui_id: Ui_Id, active := false, label: string = "", font: *Simp.Dynamic_Font = null, color := Color.UI_DEFAULT, margin_left := 1.0, margin_right := 1.0, progress_bar_value := -1.0, prefix: string = "") -> became_active := false {
     if !is_valid(rect_) return;
 
     rect := align_to_grid(rect_);  // to get a consistent outline
@@ -3902,10 +3944,23 @@ draw_text_input :: (using input: *Text_Input, rect_: Rect, ui_id: Ui_Id, active 
 
     if !is_valid(input_rect) return;
 
-    push_scissor(input_rect);
+    clip_rect := input_rect;
+    push_scissor(clip_rect);
     defer pop_scissor();
 
     input_rect = shrink(input_rect, padding);
+
+    if prefix {
+        prefix_rect: Rect;
+        prefix_rect, input_rect = cut_left(input_rect, xx Simp.get_text_width(font, prefix));
+        y := prefix_rect.y + (prefix_rect.h - font.character_height) / 2 + 2 * dpi_scale;
+        Simp.draw_text(font, xx prefix_rect.x, xx y, prefix, color = xx Color.UI_DIM);
+        // Scrolling query text must stay to the right of the fixed prefix.
+        clip_rect.w -= input_rect.x - clip_rect.x;
+        clip_rect.x = input_rect.x;
+        push_scissor(clip_rect);
+    }
+    defer { if prefix then pop_scissor(); }
 
     input_text := to_string(text);
     cursor_width := 2 * dpi_scale;
@@ -4405,7 +4460,7 @@ pop_scissor :: () {
 
     assert(scissor_stack.count > 0);
     pop(*scissor_stack);
-    if scissor_stack.count > 0 {
+    if scissor_stack {
         rect := peek(scissor_stack);
         set_scissor_rect(rect);
     } else {

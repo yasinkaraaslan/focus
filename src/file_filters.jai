@@ -267,7 +267,7 @@ git_named_class_matches :: (name: string, c: u8) -> bool {
 git_class_matches :: (input: string, c: u8) -> bool {
     chars := input;
     if c == #char "/" return false;
-    negate := chars.count > 0 && (chars[0] == #char "!" || chars[0] == #char "^");
+    negate := chars && (chars[0] == #char "!" || chars[0] == #char "^");
     if negate advance(*chars);
     matched := false;
     i := 0;

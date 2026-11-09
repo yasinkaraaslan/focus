@@ -50,7 +50,7 @@ create_project :: () {
     using create_new_project_dialog;
 
     project_name := to_string(input.text);
-    if !project_name.count {
+    if !project_name {
         add_user_error("Project name cannot be empty");
         return;
     }

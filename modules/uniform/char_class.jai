@@ -198,7 +198,7 @@ negate :: (using ccb: *CharClass) {
 	dest := 0;
 	src := 0;
 	nextlo: Rune;
-	if ranges.count && ranges[0].lo == 0 {
+	if ranges && ranges[0].lo == 0 {
 		nextlo = ranges[0].hi + 1;
 		src = 1;
 	}

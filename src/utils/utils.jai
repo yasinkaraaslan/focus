@@ -16,7 +16,7 @@ array_insert_bytes_at :: (array: *[..] u8, offset: s64, bytes: [] u8) {
 }
 
 array_add_bytes :: (array: *[..] u8, bytes: [] u8) {
-    if bytes.count <= 0 return;
+    if !bytes return;
 
     new_size := array.count + bytes.count;
     array_reserve(array, new_size);
@@ -622,11 +622,11 @@ get_num_cpus :: () -> s32 {
 }
 
 starts_with :: inline (s: string, ch: u8) -> bool {
-    return (s.count >= 1) && (s[0] == ch);
+    return s && (s[0] == ch);
 }
 
 ends_with :: inline (s: string, ch: u8) -> bool {
-    return (s.count >= 1) && (s[s.count - 1] == ch);
+    return s && (s[s.count - 1] == ch);
 }
 
 // a version of `split()` from the `String` module that returns an array with a maximum

@@ -60,7 +60,7 @@ walk :: (ctx: C, re: *Regexp_Node, initial_value: T, w: Walk($C, $T)) -> T, stop
 			s.n = 0;
 		}
 
-		if (s.re.subs.count > 0) {
+		if (s.re.subs) {
 			if (s.n < s.re.subs.count) {
 				if (w.copy && s.n > 0 && s.re.subs[s.n - 1] == s.re.subs[s.n]) {
 					s.child_args[s.n] = w.copy(ctx, s.child_args[s.n - 1]);
@@ -92,9 +92,9 @@ walk :: (ctx: C, re: *Regexp_Node, initial_value: T, w: Walk($C, $T)) -> T, stop
 			// We've finished stack.top().
 			// Update next guy down.
 			pop(*stack);
-			if !stack.count		return t, stopped_early;
+			if !stack		return t, stopped_early;
 			s := *stack[stack.count - 1];
-			if s.child_args.count {
+			if s.child_args {
 				s.child_args[s.n] = t;
 			}
 			s.n += 1;

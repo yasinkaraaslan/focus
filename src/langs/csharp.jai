@@ -89,7 +89,7 @@ get_next_token :: (using tokenizer: *CSharp_Tokenizer) -> Token {
     // Look at the first char as if it's ASCII (if it isn't, this is just a text line)
     char := t.*;
 
-    if interpolated_string_is_verbatim.count > 0 && last_token.type == .punctuation && last_token.punctuation == .r_brace {
+    if interpolated_string_is_verbatim && last_token.type == .punctuation && last_token.punctuation == .r_brace {
         is_verbatim := interpolated_string_is_verbatim[interpolated_string_is_verbatim.count - 1];
         parse_interpolated_string_literal(tokenizer, *token, is_verbatim , is_start = false);
         array_ordered_remove_by_index(*interpolated_string_is_verbatim, interpolated_string_is_verbatim.count - 1);

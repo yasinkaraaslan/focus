@@ -1484,7 +1484,7 @@ X11_Lib :: struct #type_info_no_size_complaint {
         }
 
         bulk_intern_atoms :: (using lib: *X11_Lib, dpy: *Display, infos: []Atom_Info) {
-            if !infos.count return;
+            if !infos return;
 
             results: [..]Atom;
             results.allocator = temp;

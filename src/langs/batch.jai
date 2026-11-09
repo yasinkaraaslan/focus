@@ -422,7 +422,7 @@ parse_command :: (using tokenizer: *Batch_Tokenizer, token: *Batch_Token) -> str
             }
         }
 
-        if command.count > 0 {
+        if command {
             if contains_any_character(command, ".\\/") { // Looks like a file path.
                 token.type = .default;
             } else {

@@ -248,7 +248,7 @@ update_window_events :: (display: *Display) {
      * Because of this we need to "double buffer" here so that the `Input` module doesn't
      * discard said events during the "update" phase.
      */
-    if bd.events_this_frame.count > 0 {
+    if bd.events_this_frame {
         array_resize(*Input.events_this_frame, bd.events_this_frame.count);
         memcpy(Input.events_this_frame.data, bd.events_this_frame.data, bd.events_this_frame.count * size_of(Input.Event));
         array_reset_keeping_memory(*bd.events_this_frame);

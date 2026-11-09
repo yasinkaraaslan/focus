@@ -24,7 +24,7 @@ match :: (text: string, re: Regexp, re_anchor_in: Anchor = .UNANCHORED) -> match
 	}
 
 	subtext := text;
-	if re.prefix.count {
+	if re.prefix {
 		if re.prefix.count > text.count {
 			return false, .[];
 		}
@@ -66,9 +66,9 @@ match :: (text: string, re: Regexp, re_anchor_in: Anchor = .UNANCHORED) -> match
 
 	matched, submatches := match_nfa(re.prog, subtext, text, re.prefix.count, anchor, kind, num_captures);
 
-	if re.prefix.count && matched {
+	if re.prefix && matched {
 		// Prepend prefix to full match
-		if submatches[0].count {
+		if submatches[0] {
 			submatches[0].data -= re.prefix.count;
 			submatches[0].count += re.prefix.count;
 		} else {

@@ -325,7 +325,7 @@ execute_save_as :: (action: Deferred_Action) -> Action_Result {
             return .NEXT;
         } else {
             found, directory, file := split_from_right(file_path, #char "/");
-            if found && directory.count > 0 {
+            if found && directory {
                 success := make_directory_if_it_does_not_exist(directory, recursive=true);
                 if !success {
                     add_user_error("Unable to make directory '%'", directory);

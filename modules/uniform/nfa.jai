@@ -319,7 +319,7 @@ add_to_queue :: (using nfa: *Nfa, q: *Thread_Queue, id0: int, c: int, ctx: strin
 	stack.count = 0;
 	array_add(*stack, make_state(id0, null));
 	t0 := t0_in;
-	while stack.count > 0 {
+	while stack {
 		assert(stack.count < stack_size);
 		a := pop(*stack);
 

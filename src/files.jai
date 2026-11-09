@@ -284,10 +284,10 @@ path_wildcard_match :: (path: string, wildcard: string) -> bool {
 _wildcard_match :: (s: string, pat: string) -> bool {
     while true {
         // If pattern is over, string must be over too.
-        if !pat.count return !s.count;
+        if !pat return !s;
 
         // If string is over and pattern not over, then it must be *
-        if !s.count && pat[0] != #char "*" return false;
+        if !s && pat[0] != #char "*" return false;
 
         // Handle wildcard.
         if pat[0] == #char "*" {
@@ -295,18 +295,18 @@ _wildcard_match :: (s: string, pat: string) -> bool {
             if pat && pat[0] == #char "*" {
                 // Handle **
                 while pat && pat[0] == #char "*" advance(*pat);  // skip all *****'s if present
-                if !pat.count return true;
+                if !pat return true;
                 while true {
                     if _wildcard_match(s, pat) return true;
-                    if !s.count return false;
+                    if !s return false;
                     advance(*s);
                 }
             } else {
-                if !pat.count return !contains(s, "/");
+                if !pat return !contains(s, "/");
                 // Handle *
                 while true {
                     if _wildcard_match(s, pat) return true;
-                    if !s.count return false;
+                    if !s return false;
                     if s[0] != #char "/" then advance(*s); else return false;
                 }
             }

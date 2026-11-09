@@ -68,7 +68,7 @@ advance :: (tokenizer: *Ini_Tokenizer) #expand {
 }
 
 seek_to_end_of_range :: (tokenizer: *Ini_Tokenizer, range: *Ini_Range) #expand {
-    if range.text.count {
+    if range.text {
         assert(range.text.count == range.type.count);
         tokenizer.s_it = range.text.data + range.text.count;
         tokenizer.t_it = range.type.data + range.type.count;
@@ -89,7 +89,7 @@ extend :: (range: *Ini_Range, by := 1) #expand {
 }
 
 highlight_range :: inline (tokenizer: *Ini_Tokenizer, range: *Ini_Range, type: Token_Type) -> bool {
-    if range.type.count {
+    if range.type {
         assert(range.text.count == range.type.count);
         assert(range.text.data - tokenizer.s_start == range.type.data - tokenizer.t_start);
 

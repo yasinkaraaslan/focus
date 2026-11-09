@@ -435,7 +435,7 @@ find_all_using_regex :: (using task: *Search_Task, regex: re.Regexp, buffer: Buf
     buffer_str := to_string(buffer.bytes);
 
     while true {
-        if buffer_str.count <= 0 break;
+        if !buffer_str break;
 
         auto_release_temp();  // this is very important because the regex library allocates a lot and we need to throw it away immediately
 

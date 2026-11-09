@@ -390,7 +390,7 @@ empty_flags :: (text: string, pos: int) -> EmptyOp {
 	}
 
 	// \b and \B
-	if pos == 0 && text.count == 0 {
+	if pos == 0 && !text {
 		// no word boundary here
 	} else if pos == 0 {
 		if is_word_char(text[pos]) {
@@ -789,7 +789,7 @@ mark_successors :: (using prog: *Prog, reachable: *Sparse_Set, stk: *[..] int) -
 	reachable.count = 0;
 	stk.count = 0;
 	array_add(stk, start_unanchored);
-	while stk.count {
+	while stk.* {
 		id := pop(stk);
 		if contains(reachable.*, id)	 continue;
 		add_unchecked(reachable, id);
@@ -834,7 +834,7 @@ mark_dominator :: (using prog: *Prog, root: int, rootmap: *Sparse_Array(int), pr
 	stk.count = 0;
 	array_add(stk, root);
 
-	while stk.count {
+	while stk.* {
 		id := pop(stk);
 		if contains(reachable.*, id) continue;
 		add_unchecked(reachable, id);
@@ -882,7 +882,7 @@ emit_list :: (using prog: *Prog, root: int, rootmap: *Sparse_Array(int), flat: *
 	reachable.count = 0;
 	stk.count = 0;
 	array_add(stk, root);
-	while stk.count {
+	while stk.* {
 		id := pop(stk);
 		if contains(reachable.*, id) continue;
 		add_unchecked(reachable, id);

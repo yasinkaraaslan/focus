@@ -267,7 +267,7 @@ finish :: (using comp: *Compiler, re: *Regexp_Node) -> *Prog {
 
 	if (!prog.reversed) {
 		prefix, prefix_foldcase := required_prefix_for_accel(re.*);
-		if prefix.count && !prefix_foldcase {
+		if prefix && !prefix_foldcase {
 			prog.prefix_size = prefix.count;
 			prog.prefix_front = prefix[0];
 			prog.prefix_back = prefix[prefix.count - 1];
@@ -843,7 +843,7 @@ compiler_post_visit :: (using comp: *Compiler, re: *Regexp_Node, parent_arg: Fra
 
 		case .LiteralString;
 			// Concatenation of literals.
-			if re.runes.count == 0	return nop(comp);
+			if !re.runes	return nop(comp);
 
 			f: Frag;
 			for re.runes {
@@ -934,7 +934,7 @@ is_anchor_start :: (re: *Regexp_Node, pool: *Regexp_Pool, depth: int) -> *Regexp
 
 	if re.op == {
 		case .Concat;
-			if re.subs.count > 0 {
+			if re.subs {
 				sub, sub_start := is_anchor_start(re.subs[0], pool, depth + 1);
 				if sub_start {
 					return new_concat(pool, re.subs, re.parse_flags), true;
@@ -963,7 +963,7 @@ is_anchor_end :: (re: *Regexp_Node, pool: *Regexp_Pool, depth: int) -> *Regexp_N
 
 	if re.op == {
 		case .Concat;
-			if re.subs.count > 0 {
+			if re.subs {
 				sub, sub_end := is_anchor_end(re.subs[re.subs.count - 1], pool, depth + 1);
 				if sub_end {
 					return new_concat(pool, re.subs, re.parse_flags), true;

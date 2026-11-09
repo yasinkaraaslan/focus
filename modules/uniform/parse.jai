@@ -301,7 +301,7 @@ regexp_equal :: (a: *Regexp_Node, b: *Regexp_Node) -> bool {
 				return true;
 		}
 
-		if !stack.count		return true;
+		if !stack		return true;
 
 		a1 = stack[stack.count-2];
 		b1 = stack[stack.count-1];
@@ -357,7 +357,7 @@ required_prefix_for_accel :: (re: Regexp_Node) -> prefix: string, foldcase: bool
 	// No need for a walker: the regexp must either begin with or be
 	// a literal char or string.
 	to_analyze := *re;
-	if re.op == .Concat && re.subs.count > 0 {
+	if re.op == .Concat && re.subs {
 		to_analyze = re.subs[0];
 	}
 
@@ -442,7 +442,7 @@ rep :: (ps: *ParseState, op: RegexpOp, t: *string, lastunary: string) -> isunary
 	nongreedy := false;
 	advance(t);  // '*' or '+' or '?'
 	if (ps.flags & .PerlX) {
-		if (t.count && (t.*)[0] == #char "?") {
+		if (t.* && (t.*)[0] == #char "?") {
 			nongreedy = true;
 			advance(t);  // '?'
 		}
@@ -476,7 +476,7 @@ parse :: (s: string, global_flags: ParseFlags = .NoParseFlags) -> *Regexp_Node, 
 
 	lastunary: string;
 	t := s;
-	while t.count {
+	while t {
 		isunary: string;
 		if t[0] == {
 			case; {
@@ -597,7 +597,7 @@ parse :: (s: string, global_flags: ParseFlags = .NoParseFlags) -> *Regexp_Node, 
 						parsed = true;
 					} else if (t[1] == #char "Q") {  // \Q ... \E: the ... is always literals
 						advance(*t, 2);  // '\\', 'Q'
-						while t.count {
+						while t {
 							if (t.count >= 2 && t[0] == #char "\\" && t[1] == #char "E") {
 								advance(*t, 2);  // '\\', 'E'
 								parsed = true;
@@ -717,7 +717,7 @@ new_concat_or_alternate :: (pool: *Regexp_Pool, op: RegexpOp, subs: [] *Regexp_N
 		return sub;
 	}
 
-	if subs.count == 0 {
+	if !subs {
 		if op == .Alternate {
 			return new_regexp(pool, .NoMatch, flags);
 		} else {
@@ -1025,7 +1025,7 @@ to_string :: (re: *Regexp_Node) -> string {
 				append(builder, "\\B");
 
 			case .CharClass;
-				if (re.char_class.ranges.count == 0) {
+				if (!re.char_class.ranges) {
 					append(builder, "[^\\x00-\\x{10ffff}]");
 				} else {
 					append(builder, "[");
@@ -2108,7 +2108,7 @@ maybe_concat_string :: (ps: *ParseState, r: Rune, flags: ParseFlags) -> bool {
 
 add_rune_to_string :: (re: *Regexp_Node, r: Rune) {
 	assert(re.op == .LiteralString);
-	if re.runes.count == 0 {
+	if !re.runes {
 		array_reserve(*re.runes, 8);
 	}
 	array_add(*re.runes, r);
@@ -2119,13 +2119,13 @@ add_rune_to_string :: (re: *Regexp_Node, r: Rune) {
 // Parses a decimal integer, storing it in *np.
 // Sets *s to span the remainder of the string.
 parse_integer :: (s: *string) -> int, success: bool {
-	if !s.count || !isdigit((s.*)[0])		return 0, false;
+	if !s.* || !isdigit((s.*)[0])		return 0, false;
 
 	// Disallow leading zeros.
 	if s.count >= 2 && (s.*)[0] == #char "0" && isdigit((s.*)[1])	return 0, false;
 
 	n := 0;
-	while s.count && isdigit((s.*)[0]) {
+	while s.* && isdigit((s.*)[0]) {
 		c := (s.*)[0];
 		// Avoid overflow.
 		if n >= 100000000	return 0, false;
@@ -2146,7 +2146,7 @@ parse_integer :: (s: *string) -> int, success: bool {
 // s must NOT be edited unless MaybeParseRepetition returns true.
 maybe_parse_repetition :: (sp: *string) -> lo: int, hi: int, success: bool {
 	s := sp.*;
-	if !s.count || s[0] != #char "{"	 return 0, 0, false;
+	if !s || s[0] != #char "{"	 return 0, 0, false;
 
 	advance(*s);
 
@@ -2173,7 +2173,7 @@ maybe_parse_repetition :: (sp: *string) -> lo: int, hi: int, success: bool {
 		// {2} means exactly two
 		hi = lo;
 	}
-	if !s.count || s[0] != #char "}"	return 0, 0, false;
+	if !s || s[0] != #char "}"	return 0, 0, false;
 	advance(*s);
 	sp.* = s;
 
@@ -2219,7 +2219,7 @@ parse_escape :: (s: *string, rune_max: s32) -> r: Rune, status: Status, success:
 		return status;
 	}
 
-	assert(s.count && (s.*)[0] == #char "\\");
+	assert(s.* && (s.*)[0] == #char "\\");
 
 	if s.count == 1 {
 		return 0, make_status(.TrailingBackslash), false;
@@ -2252,12 +2252,12 @@ parse_escape :: (s: *string, rune_max: s32) -> r: Rune, status: Status, success:
 		case #char "6"; #through;
 		case #char "7";
 			// Single non-zero octal digit is a backreference; not supported.
-			if !s.count || (s.*)[0] < #char "0" || (s.*)[0] > #char "7"	 return 0, bad_escape(begin, s), false;
+			if !s.* || (s.*)[0] < #char "0" || (s.*)[0] > #char "7"	 return 0, bad_escape(begin, s), false;
 			#through;
 		case #char "0";
 			// consume up to three octal digits; already have one.
 			code := c - #char "0";
-			if !s.count		return 0, bad_escape(begin, s), false;
+			if !s.*		return 0, bad_escape(begin, s), false;
 			c = (s.*)[0];
 			if #char "0" <= c && c <= #char "7" {
 				code = code * 8 + c - #char "0";
@@ -2276,7 +2276,7 @@ parse_escape :: (s: *string, rune_max: s32) -> r: Rune, status: Status, success:
 
 		// Hexadecimal escapes
 		case #char "x";
-			if !s.count	 return 0, bad_escape(begin, s), false;
+			if !s.*	 return 0, bad_escape(begin, s), false;
 			len: int;
 			c, len, status = consume_rune(s);
 			if !len		return 0, status, false;
@@ -2297,7 +2297,7 @@ parse_escape :: (s: *string, rune_max: s32) -> r: Rune, status: Status, success:
 					nhex += 1;
 					code = cast(Rune)(code * 16 + hval);
 					if code > rune_max		return 0, bad_escape(begin, s), false;
-					if !s.count				return 0, bad_escape(begin, s), false;
+					if !s.*				return 0, bad_escape(begin, s), false;
 					c, len, status = consume_rune(s);
 					if !len		return 0, status, false;
 					hval, success = hex_value(c);
@@ -2306,7 +2306,7 @@ parse_escape :: (s: *string, rune_max: s32) -> r: Rune, status: Status, success:
 				return code, status, true;
 			} else {
 				// Easy case: two hex digits.
-				if !s.count		return 0, bad_escape(begin, s), false;
+				if !s.*		return 0, bad_escape(begin, s), false;
 				c1, len, status := consume_rune(s);
 				if !len			return 0, status, false;
 				hc0, success0 := hex_value(c);
@@ -2644,14 +2644,14 @@ parse_cc_range :: (using ps: *ParseState, s: *string, whole_class: string) -> Ru
 parse_char_class :: (using ps: *ParseState, s: *string) -> *Regexp_Node, status: Status, success: bool {
 	whole_class := s.*;
 	// Caller checked this.
-	assert(s.count && (s.*)[0] == #char "[");
+	assert(s.* && (s.*)[0] == #char "[");
 
 	negated: bool;
 	re := new_regexp(*ps.pool, .CharClass, flags & ~.FoldCase);
 	re.char_class = New(CharClass);
 	re.char_class_finished = false;
 	advance(s);  // '['
-	if s.count && (s.*)[0] == #char "^" {
+	if s.* && (s.*)[0] == #char "^" {
 		advance(s); // '^'
 		negated = true;
 		if !(flags & .ClassNL) || flags & .NeverNL {
@@ -2661,7 +2661,7 @@ parse_char_class :: (using ps: *ParseState, s: *string) -> *Regexp_Node, status:
 		}
 	}
 	first := true;  // ] is okay as first char in class
-	while s.count && (first || (s.*)[0] != #char "]") {
+	while s.* && (first || (s.*)[0] != #char "]") {
 		// - is only okay unescaped as first or last in class.
 		// Except that Perl allows - anywhere.
 		if !first && (s.*)[0] == #char "-" && !(flags & .PerlX) && (s.count == 1 || (s.*)[1] != #char "]") {
@@ -2726,7 +2726,7 @@ parse_char_class :: (using ps: *ParseState, s: *string) -> *Regexp_Node, status:
 		add_range_flags(re.char_class, rr.lo, rr.hi, flags | .ClassNL);
 	}
 
-	if !s.count {
+	if !s.* {
 		remove_regexp(*ps.pool, re);
 		return null, make_status(.MissingBracket, whole_class), false;
 	}
@@ -2812,7 +2812,7 @@ parse_perl_flags :: (using ps: *ParseState, s: *string) -> Status, success: bool
 	nflags := flags;
 	done: bool;
 	while !done {
-		if !t.count		return make_status(.BadPerlOp, s.*), false;
+		if !t		return make_status(.BadPerlOp, s.*), false;
 		c, len, status :=  consume_rune(*t);
 		if !len		return status, false;
 		if c == {

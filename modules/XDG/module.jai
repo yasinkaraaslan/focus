@@ -162,7 +162,7 @@ reap_child_processes :: () {
             empty += 1;
         }
     }
-    if unreaped_children.count && unreaped_children.count == empty {
+    if unreaped_children && unreaped_children.count == empty {
         array_reset_keeping_memory(*unreaped_children);
     }
 }

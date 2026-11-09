@@ -1,14 +1,14 @@
 text_input_handle_event :: (using input: *Text_Input, event: Input.Event) -> handled: bool {
+    return text_input_handle_action(input, map_event_to_action(event, Action_Common), event.shift_pressed);
+}
+
+text_input_handle_action :: (using input: *Text_Input, action: Action_Common, extend_selection := false) -> handled: bool {
     old_text := copy_temporary_string(to_string(text));
-    if edits.count == 0 {
+    if !edits {
         // Always remember cursor before any edits
         cursor_before_edits = cursor;
     }
     if (frame_time64 - last_edit_time) >= EDIT_GROUP_TIMEOUT then new_edit_group(input);
-
-    action := map_event_to_action(event, Action_Common);
-
-    extend_selection := event.shift_pressed;
 
     if action == {
         case .copy;                                copy                                (input);
@@ -64,7 +64,7 @@ text_input_handle_event :: (using input: *Text_Input, event: Input.Event) -> han
 text_input_type_char :: (using input: *Text_Input, char: u32) {
     if key_sequence_input_in_progress() return;
 
-    if edits.count == 0 {
+    if !edits {
         // Always remember cursor before any edits
         cursor_before_edits = cursor;
     } else {
@@ -142,7 +142,7 @@ select_word :: (using input: *Text_Input) {
 }
 
 replace_text :: (using input: *Text_Input, new_text: string) {
-    if edits.count == 0 then cursor_before_edits = cursor;
+    if !edits then cursor_before_edits = cursor;
     new_edit_group(input);
     replace_range(input, 0, text.count, new_text);
 }
@@ -174,7 +174,7 @@ paste :: (using input: *Text_Input) {
 undo :: (using input: *Text_Input) {
     new_edit_group(input);
 
-    if undos.count == 0 return;
+    if !undos return;
     edit_group := pop(*undos);
     // Revert edits in the backwards order
     for < e : edit_group.edits {
@@ -194,7 +194,7 @@ undo :: (using input: *Text_Input) {
 }
 
 redo :: (using input: *Text_Input) {
-    if redos.count == 0 return;
+    if !redos return;
     edit_group := pop(*redos);
     // Replay edits in the normal order
     for e : edit_group.edits {
@@ -333,7 +333,7 @@ delete_selection :: inline (using input: *Text_Input, copy_to_clipboard := false
 }
 
 new_edit_group :: (using input: *Text_Input) {
-    if edits.count == 0 return;
+    if !edits return;
 
     new_group := add(*undos);
     new_group.edits = to_owned_array(*edits);

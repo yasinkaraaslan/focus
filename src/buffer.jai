@@ -972,7 +972,7 @@ strip_trailing_whitespace :: (using buffer: *Buffer, buffer_id: s64, except_line
     for line_end : to_view(line_starts, 1, line_starts.count - 1) {
         line := string.{ count = line_end - line_start, data = bytes.data + line_start };
         if ends_with(line, cast(u8) #char "\n") then line.count -= 1;
-        if line.count >= 1 {
+        if line {
             trim_after := trim_right(line).count;
 
             pos_of_rightmost_cursor_on_this_line := -1;

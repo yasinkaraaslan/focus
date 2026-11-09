@@ -554,7 +554,7 @@ objc_func_encode :: (ty: *Type_Info_Procedure) -> string {
 
     builder: String_Builder;
 
-    if ty.return_types.count {
+    if ty.return_types {
         objc_type_encode(*builder, ty.return_types[0]);
     } else {
         append(*builder, "v");

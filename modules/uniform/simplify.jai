@@ -73,7 +73,7 @@ simplify :: (re: *Regexp_Node, pool: *Regexp_Pool) -> *Regexp_Node {
 // char classes, any char and any byte.
 coalesce :: (using re: *Regexp_Node, pool: *Regexp_Pool) -> *Regexp_Node {
 	coalesce_post :: (pool: *Regexp_Pool, re: *Regexp_Node, parent_arg: *Regexp_Node, pre_arg: *Regexp_Node, child_args: [..] *Regexp_Node) -> *Regexp_Node {
-		if re.subs.count == 0	return re;
+		if !re.subs	return re;
 		if re.op != .Concat {
 			if !child_args_changed(re, child_args) return re;
 

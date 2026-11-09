@@ -13,7 +13,7 @@ main :: () {
     dirs := *context.dirs;
     array_add(dirs, starting_dir);
 
-    while dirs.count {
+    while dirs {
         elm := dirs.*[dirs.count-1];
         dirs.count -= 1;
         read_dir_entries(elm);
@@ -71,7 +71,7 @@ get_lines :: (file_count: s64, check_only := false) -> files_read: s64 {
 }
 
 count_lines :: (data: []u8) -> s64 {
-    if data.count == 0 return 0;
+    if !data return 0;
     lines := 1;
     // Obviously this would be done far faster with SIMD but I didn't want to introduce more things that could go wrong
     for data if it == #char "\n" then lines += 1;

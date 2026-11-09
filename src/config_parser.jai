@@ -1326,7 +1326,7 @@ parse_key_combo :: (using parser: *Config_Parser, combo_str: string, line: strin
             key_code -= (#char "a" - #char "A");
         }
 
-        if s.count > 0 {
+        if s {
             // There are extra characters, report an error
             if !parse_for_highlighting {
                 return combo, false, tprint("Expected a single char key code or a valid key name, got: '%'.", key_string);
@@ -1383,7 +1383,7 @@ parse_linux_config_line :: (using parser: *Config_Parser, line: string) -> succe
 }
 
 section_allows_lines_outside_subsection :: inline (section: Section) -> bool {
-    return CONFIG_SECTIONS[section].subsections.count == 0 || CONFIG_SECTIONS[section].allow_lines_outside_subsection;
+    return !CONFIG_SECTIONS[section].subsections || CONFIG_SECTIONS[section].allow_lines_outside_subsection;
 }
 
 section_allows_arbitrary_subsections :: inline (section: Section) -> bool {

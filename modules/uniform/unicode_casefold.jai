@@ -17,7 +17,7 @@ CaseFold :: struct {
 lookup_casefold :: (folds: [] CaseFold, r: Rune) -> *CaseFold {
 	// Binary search for entry containing r.
 	f := folds;
-	while f.count {
+	while f {
 		m := f.count / 2;
 		if f[m].lo <= r && r <= f[m].hi {
 			return *f[m];
@@ -34,7 +34,7 @@ lookup_casefold :: (folds: [] CaseFold, r: Rune) -> *CaseFold {
 	// where it would have been.  Unless f points at
 	// the end of the array, it points at the next entry
 	// after r.
-	if f.count	 return *f[0];
+	if f	 return *f[0];
 
 	// No entry contains r; no entry contains runes > r.
 	return null;

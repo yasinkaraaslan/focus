@@ -137,7 +137,7 @@ create_process_with_single_output_pipe :: (process: *Process, args: .. string, w
         return false;
     }
 
-    if args.count < 1   return false;
+    if !args   return false;
 
     // Convert working_directory and args to C strings.
     // We do this here so that the child process doesn’t need to allocate after fork(),

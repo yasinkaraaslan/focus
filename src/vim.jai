@@ -376,7 +376,10 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
                 }
                 new_edit_group(buffer, editor);
                 if mode == .Visual then mode = .Normal;
-            case #char "/"; vim_action(editor, buffer, .search_in_buffer);
+            case #char "/"; #through;
+            case #char "?"; vim_search_open(editor, buffer, char == #char "?", times);
+            case #char "n"; #through;
+            case #char "N"; vim_search_repeat(editor, buffer, char == #char "N", times);
         }
         return;
     }
@@ -394,6 +397,188 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
         for * editor.cursors { it.sel = it.pos; }
         if op == #char "c" then mode = .Insert;
     }
+}
+
+vim_search_open :: (editor: *Editor, buffer: *Buffer, backward: bool, times: s32) {
+    using bar := *editor.search_bar;
+    free(vim_history.draft);
+    vim_history = .{};
+    reset(*vim_original_cursors);
+    for editor.cursors { add(*vim_original_cursors, it); }
+    vim_original_main_cursor = editor.main_cursor;
+    vim_original_cursor = editor.original_cursor;
+    original_cursor_position = editor.cursors[editor.main_cursor];
+    vim_prompt_backward = backward;
+    vim_count = times;
+    mode = .vim;
+    active = true;
+    jumped = false;
+    regex_search = true;
+    whole_word = false;
+    case_sensitive_toggled_manually = false;
+    text_input_fully_clear(*input);
+    reset_search_results(bar);
+    redraw_requested = true;
+}
+
+vim_search_position :: (editor: *Editor, buffer: Buffer, offset: s32) -> s32 {
+    if editor.vim.mode == .Normal {
+        line := offset_to_real_line(buffer, offset);
+        start := get_real_line_start_offset(buffer, line);
+        end := get_real_line_end_offset(buffer, line);
+        if offset == end && end > start then return prev_char_offset(buffer.bytes, offset);
+    }
+    return offset;
+}
+
+// Compare the positions Normal mode can actually display. A zero-width match
+// at a line end sits on the preceding character, so n must advance past it.
+vim_search_index :: (editor: *Editor, buffer: Buffer, origin: s32, backward: bool, times: s32) -> s32 {
+    bar := *editor.search_bar;
+    if !bar.results return -1;
+    index: s64 = 0;
+    if backward {
+        index = bar.results.count - 1;
+        for bar.results {
+            if vim_search_position(editor, buffer, it.offset) >= origin break;
+            index = it_index;
+        }
+        index = (index - (times - 1) % bar.results.count + bar.results.count) % bar.results.count;
+    } else {
+        for bar.results {
+            if vim_search_position(editor, buffer, it.offset) > origin { index = it_index; break; }
+        }
+        index = (index + times - 1) % bar.results.count;
+    }
+    return xx index;
+}
+
+vim_search_move :: (editor: *Editor, buffer: Buffer, index: s32) {
+    if index < 0 return;
+    using bar := *editor.search_bar;
+    selected_result = index;
+    cursor := leave_only_main_cursor(editor);
+    cursor.pos = vim_search_position(editor, buffer, results[index].offset);
+    if editor.vim.mode != .Visual then cursor.sel = cursor.pos;
+    cursor.col_wanted = -1;
+    editor.cursor_moved = true;
+    editor.refresh_selection = true;
+    editor.scroll_to_cursor = .yes;
+    jumped = true;
+    cursors_start_blinking();
+    redraw_requested = true;
+}
+
+vim_search_restore_cursors :: (editor: *Editor) {
+    using bar := *editor.search_bar;
+    resize(*editor.cursors, vim_original_cursors.count);
+    for vim_original_cursors { editor.cursors[it_index] = it; }
+    editor.main_cursor = vim_original_main_cursor;
+    editor.original_cursor = vim_original_cursor;
+    editor.refresh_selection = true;
+    editor.scroll_to_cursor = .yes;
+    redraw_requested = true;
+}
+
+vim_search_preview :: (editor: *Editor, buffer: Buffer) {
+    using bar := *editor.search_bar;
+    // Every edit previews from the original position, including failed/empty queries.
+    vim_search_restore_cursors(editor);
+    index := vim_search_index(editor, buffer, original_cursor_position.pos, vim_prompt_backward, vim_count);
+    vim_search_move(editor, buffer, index);
+}
+
+vim_search_finish :: (editor: *Editor, buffer: *Buffer, accept: bool) {
+    using bar := *editor.search_bar;
+    if accept {
+        if !input.text {
+            replace_text(*input, to_string(vim_pattern));
+            search_and_update_results(editor, buffer, jump = true);
+        }
+        if !is_empty(input.text) {
+            reset(*vim_pattern);
+            for to_string(input.text) { add(*vim_pattern, it); }
+            vim_backward = vim_prompt_backward;
+        }
+    }
+    close_search_bar(editor, jump_to_original_cursor = !accept, keep_results = accept);
+    if !accept then reset_search_results(bar);
+    editor.refresh_selection = true;
+    redraw_requested = true;
+}
+
+vim_search_repeat :: (editor: *Editor, buffer: *Buffer, opposite: bool, times: s32) {
+    using bar := *editor.search_bar;
+    if !vim_pattern return;
+    replace_text(*input, to_string(vim_pattern));
+    mode = .vim;
+    regex_search = true;
+    whole_word = false;
+    case_sensitive_toggled_manually = false;
+    search_and_update_results(editor, buffer);
+    origin := editor.cursors[editor.main_cursor].pos;
+    index := vim_search_index(editor, buffer, origin, vim_backward != opposite, times);
+    vim_search_move(editor, buffer, index);
+}
+
+vim_search_handle_event :: (editor: *Editor, buffer: *Buffer, event: Input.Event) -> bool {
+    using bar := *editor.search_bar;
+    mods := event.modifier_flags;
+    key := event.key_code;
+    ctrl := mods.ctrl_pressed && !mods.alt_pressed && !mods.cmd_meta_pressed;
+    if key == .ESCAPE || (ctrl && (key == #char "[" || key == #char "C")) {
+        vim_search_finish(editor, buffer, false);
+        return true;
+    }
+    if key == .ENTER || key == .NUMPAD_ENTER || (ctrl && (key == #char "M" || key == #char "J")) {
+        vim_search_finish(editor, buffer, true);
+        return true;
+    }
+    if (key == .BACKSPACE || (ctrl && key == #char "H")) && !input.text {
+        vim_search_finish(editor, buffer, false);
+        return true;
+    }
+    if ctrl && (key == #char "G" || key == #char "T") {
+        if !is_empty(results) {
+            delta := ifx vim_prompt_backward then -1 else 1;
+            if key == #char "T" then delta = -delta;
+            index := (selected_result + delta + results.count) % results.count;
+            vim_search_move(editor, buffer, xx index);
+        }
+        return true;
+    }
+    old_search_str := copy_temporary_string(to_string(input.text));
+    if key == .ARROW_UP || (ctrl && key == #char "P") {
+        if !vim_pattern || vim_history.recalled return true;
+        vim_history.draft = copy_string(to_string(input.text));
+        vim_history.cursor = input.cursor;
+        vim_history.recalled = true;
+        replace_text(*input, to_string(vim_pattern));
+        input.cursor.pos = xx input.text.count;
+        input.cursor.sel = input.cursor.pos;
+    } else if key == .ARROW_DOWN || (ctrl && key == #char "N") {
+        if !vim_history.recalled return true;
+        replace_text(*input, vim_history.draft);
+        input.cursor = vim_history.cursor;
+        free(vim_history.draft);
+        vim_history = .{};
+    } else if ctrl && key == #char "U" {
+        text_input_fully_clear(*input);
+    } else if ctrl && key == #char "W" {
+        text_input_handle_action(*input, .delete_left_through_word);
+    } else if ctrl && key == #char "H" {
+        text_input_handle_action(*input, .delete_left_char);
+    } else if ctrl && key == #char "B" {
+        text_input_handle_action(*input, .jump_to_line_start);
+    } else if ctrl && key == #char "E" {
+        text_input_handle_action(*input, .jump_to_line_end);
+    } else {
+        // Leave printable key events unhandled so their layout-aware TEXT_INPUT
+        // events reach the prompt (the main event loop suppresses handled text).
+        if !text_input_handle_event(*input, event) return false;
+    }
+    if old_search_str != to_string(input.text) then search_and_update_results(editor, buffer, jump = true);
+    return true;
 }
 
 // Whitespace, keyword characters and punctuation form separate Vim word groups.
@@ -540,7 +725,7 @@ vim_object_range :: (buffer: Buffer, origin: s32, object: u32, around: bool, tim
     for byte, i: buffer.bytes {
         if !vim_pair_delimiter(buffer, cast(s32) i) continue;
         if byte == open then array_add(*stack, cast(s32) i);
-        if byte != close || stack.count == 0 continue;
+        if byte != close || !stack continue;
         left := stack[stack.count - 1];
         stack.count -= 1;
         if left > origin || i < origin continue;
@@ -767,7 +952,7 @@ vim_prepare_insert :: (editor: *Editor, buffer: *Buffer, where: Vim_Insert_Posit
 
     // Capture undo positions before adding indentation. All offsets above refer
     // to the original buffer so several cursors can insert in the same event.
-    if buffer.edits.count == 0 {
+    if !buffer.edits {
         resize(*buffer.cursors, editor.cursors.count);
         for cursor, i : editor.cursors { buffer.cursors[i] = cursor; }
     }

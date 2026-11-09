@@ -34,7 +34,7 @@ platform_setup :: inline () {
             if pos >= 0 {
                 pos += ver_id_key.count;
                 s := slice(data, pos, data.count - pos);
-                needs_new_desktop_entry = (s.count == 0) || ((s.count > 0) && (s[0] != #char "\n"));
+                needs_new_desktop_entry = !s || s[0] != #char "\n";
             } else {
                 needs_new_desktop_entry = true;
             }
@@ -231,7 +231,7 @@ platform_get_fonts_dir :: () -> string {
 }
 
 platform_open_in_explorer :: (path: string, reveal := false) {
-    local_run := (reveal && (config.linux.explorer_reveal_command.count > 0)) || (!reveal && (config.linux.explorer_command.count > 0));
+    local_run := (reveal && config.linux.explorer_reveal_command) || (!reveal && config.linux.explorer_command);
     if local_run {
         args: [..]string;
         cmd_s: string;
@@ -239,14 +239,14 @@ platform_open_in_explorer :: (path: string, reveal := false) {
         defer free(cmd_s);
         defer array_reset(*args);
 
-        if !reveal && config.linux.explorer_command.count > 0 {
+        if !reveal && config.linux.explorer_command {
             cmd_s = replace(config.linux.explorer_command, "%s", path);
         }
-        if reveal && config.linux.explorer_reveal_command.count > 0 {
+        if reveal && config.linux.explorer_reveal_command {
             cmd_s = replace(config.linux.explorer_reveal_command, "%s", path);
         }
 
-        if cmd_s.count > 0 {
+        if cmd_s {
             args = break_command_into_strings(cmd_s);
             process: Process;
             create_process(*process, ..args);

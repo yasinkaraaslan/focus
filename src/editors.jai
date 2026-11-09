@@ -4,6 +4,11 @@
 editors_handle_event :: (event: Input.Event) -> handled: bool {
     mods := event.modifier_flags;
     editor, buffer := get_active_editor_and_buffer();
+    if editor && editor.search_bar.active && editor.search_bar.mode == .vim {
+        if event.type == .KEYBOARD && event.key_pressed {
+            return vim_search_handle_event(editor, buffer, event);
+        }
+    }
     if config.settings.vim_mode && editor && !editor.search_bar.active {
         if event.type == .TEXT_INPUT && editor.vim.mode != .Insert {
             if editor.vim.find_command then vim_handle_char(editor, buffer, event.utf32);
@@ -219,7 +224,7 @@ active_editor_handle_event :: (editor: *Editor, buffer: *Buffer, event: Input.Ev
     if new_group || (to_float64_seconds(frame_time) - buffer.last_edit_time) >= EDIT_GROUP_TIMEOUT then new_edit_group(buffer, editor);  // do it before action
 
     // We want to remember where cursors were before we do any edits
-    if buffer.edits.count == 0 {
+    if !buffer.edits {
         resize(*buffer.cursors, editor.cursors.count);
         for * cursor, i : buffer.cursors { cursor.* = editor.cursors[i]; }
     }
@@ -457,7 +462,7 @@ active_editor_type_char :: (char: u32) {
         new_edit_group(buffer, editor);
     }
 
-    if buffer.edits.count == 0 {
+    if !buffer.edits {
         // We want to remember where cursors were before we do any edits
         resize(*buffer.cursors, editor.cursors.count);
         for * cursor, i : buffer.cursors { cursor.* = editor.cursors[i]; }
@@ -1250,7 +1255,7 @@ get_selected_text_all_cursors :: (using editor: Editor, buffer: Buffer) -> strin
     // Otherwise returns an empty string.
 
     text := get_selected_string(cursors[main_cursor], buffer);
-    if text.count == 0 return "";
+    if !text return "";
 
     for cursor : cursors {
         if text != get_selected_string(cursor, buffer) return "";
@@ -1657,11 +1662,16 @@ action_escape :: (editor: *Editor) {
     remove_additional_cursors(editor);  // this will clear selection
 }
 
-close_search_bar :: inline (editor: *Editor, jump_to_original_cursor := false, jump_to_selected_result := false) {
+close_search_bar :: inline (editor: *Editor, jump_to_original_cursor := false, jump_to_selected_result := false, keep_results := false) {
     using editor.search_bar;
     active = false;  // stop receiving input immediately
 
-    if jump_to_original_cursor && jumped {
+    if mode == .vim {
+        if jump_to_original_cursor then vim_search_restore_cursors(editor);
+        reset(*vim_original_cursors);
+        free(vim_history.draft);
+        vim_history = .{};
+    } else if jump_to_original_cursor && jumped {
         cursor := leave_only_original_cursor(editor);
         cursor.* = original_cursor_position;
         editor.scroll_to_cursor = .yes;
@@ -1674,7 +1684,7 @@ close_search_bar :: inline (editor: *Editor, jump_to_original_cursor := false, j
         editor.scroll_to_cursor = .yes;
     }
 
-    if !config.settings.persist_local_search_results {
+    if !keep_results && !config.settings.persist_local_search_results {
         reset_search_results(*editor.search_bar);
         editor.refresh_selection = true;
     }
@@ -1738,7 +1748,7 @@ search_bar_move_cursor :: (using editor: *Editor, buffer: Buffer, delta: s32, wr
 
 search_bar_open_selected_result :: (editor: *Editor, buffer: Buffer, placement: Editor_Placement) {
     using editor.search_bar;
-    if results.count <= 0 {
+    if !results {
         // Don't do anything because there aren't even any results to open
         // @Todo: should we deactivate it and move to the other open editor (as if it wasn't open)?
         return;
@@ -1762,7 +1772,7 @@ search_bar_open_selected_result :: (editor: *Editor, buffer: Buffer, placement: 
 
 search_bar_open_selected_result_in_pane :: (editor: *Editor, buffer: Buffer, number: s64) {
     using editor.search_bar;
-    if results.count <= 0 {
+    if !results {
         // Don't do anything because there aren't even any results to open
         // @Todo: should we deactivate it and move to the other open editor (as if it wasn't open)?
         return;
@@ -1812,7 +1822,10 @@ search_and_update_results :: (using editor: *Editor, buffer: Buffer, jump := fal
     reset_search_results(*search_bar);
 
     needle := to_string(search_bar.input.text);
-    if !needle return;
+    if !needle {
+        if search_bar.mode == .vim && search_bar.active && jump then vim_search_preview(editor, buffer);
+        return;
+    }
 
     if config.settings.search_is_case_sensitive_when_uppercase_present && !search_bar.case_sensitive_toggled_manually {
         search_bar.case_sensitive = contains_uppercase_ascii(needle);
@@ -1826,7 +1839,11 @@ search_and_update_results :: (using editor: *Editor, buffer: Buffer, jump := fal
         find_all(*search_bar, needle, buffer);
     }
 
-    if search_bar.selected_result < 0 && search_bar.results.count > 0 then search_bar.selected_result = search_bar.results.count - 1;  // all results are before cursor, select the closest one
+    if search_bar.selected_result < 0 && !is_empty(search_bar.results) then search_bar.selected_result = search_bar.results.count - 1;  // all results are before cursor, select the closest one
+    if search_bar.mode == .vim && search_bar.active && jump {
+        vim_search_preview(editor, buffer);
+        return;
+    }
     if search_bar.selected_result >= 0 && jump then jump_to_search_result(editor, buffer);
 }
 
@@ -1834,6 +1851,9 @@ free_editor :: (using editor: *Editor) {
     reset(*cursors);
     reset(*highlights);
     reset(*search_bar.results);
+    reset(*search_bar.vim_pattern);
+    reset(*search_bar.vim_original_cursors);
+    free(search_bar.vim_history.draft);
     reset(*wrapped_line_starts);
 }
 
@@ -2183,7 +2203,7 @@ find_all_using_regex :: (using search_bar: *Search_Bar, needle: string, buffer: 
     buffer_str := to_string(buffer.bytes);
 
     while true {
-        if buffer_str.count <= 0 break;
+        if !buffer_str break;
 
         matched, captures := re.match(buffer_str, regex,, allocator = temp);
         if !matched break;
@@ -2671,7 +2691,7 @@ find_or_create_editor :: (buffer_id: s64, unwanted_existing_editors: [] s64 = .[
 }
 
 new_edit_group :: (buffer: *Buffer, editor: *Editor) {
-    if buffer.edits.count == 0 return;
+    if !buffer.edits return;
 
     // Sometimes edits can leave cursors in an inconsistent state, which would prevent undos if we tried to save them in the undo group later
     organise_cursors(editor);
@@ -2823,7 +2843,7 @@ create_cursors_around :: (using editor: *Editor, buffer: Buffer) {
 }
 
 restore_cursor_state :: (using editor: *Editor, cursor_state: [] Cursor) {
-    if cursor_state.count == 0 return;
+    if !cursor_state return;
 
     resize(*cursors, cursor_state.count);
     for * cursor, i : cursors {
@@ -3224,7 +3244,7 @@ cursors_match :: (c1: Array(Cursor), c2: [] Cursor) -> bool {
 
 undo :: (editor: *Editor, buffer: *Buffer) {
     new_edit_group(buffer, editor);
-    if buffer.undos.count == 0 return;
+    if !buffer.undos return;
 
     edit_group := peek(buffer.undos);
 
@@ -3252,7 +3272,7 @@ undo :: (editor: *Editor, buffer: *Buffer) {
 }
 
 redo :: (editor: *Editor, buffer: *Buffer) {
-    if buffer.redos.count == 0 return;
+    if !buffer.redos return;
 
     edit_group := peek(buffer.redos);
 
@@ -4027,7 +4047,7 @@ action_add_cursors_to_line_ends :: (editor: *Editor, buffer: Buffer) {
 }
 
 add_cursors_to_line_starts :: (using editor: *Editor, buffer: Buffer) {
-    if buffer.bytes.count <= 0 return;
+    if !buffer.bytes return;
 
     line_ranges := get_whole_line_ranges_for_cursors(editor, buffer);
     reset_keeping_memory(*cursors);  // reset after getting ranges (obviously)
@@ -4111,7 +4131,7 @@ get_whole_line_ranges_for_cursors :: (editor: Editor, buffer: Buffer, merge_adja
 
             next_line_end := get_real_line_start_offset(buffer, end_line+2);
 
-            should_extend := line_ranges.count > 0 && (
+            should_extend := line_ranges && (
                 (merge_adjacent  && start_line <= last_end_line+1) ||
                 (!merge_adjacent && start_line <= last_end_line)
             );
@@ -5058,7 +5078,7 @@ word_completion :: (forwards := true, subwords := false) {
         word_complete_search();
         set_underscore_is_part_of_word(true);
 
-        if results.count == 0 then return;
+        if !results then return;
         active = true;
     }
 
@@ -5105,7 +5125,7 @@ word_complete_abort :: () {
     using word_complete;
     active = false;
     scroll_top = 0;
-    if !results.count return;
+    if !results return;
     for results { free(it.word); }
     array_reset(*results);
     selected_result_index = -1;
@@ -5123,7 +5143,7 @@ word_complete_search :: () {
     right := cursor.pos;
     left  := scan_through_similar_chars_on_the_left(buffer, cursor.pos, Char_Type.word, skip_one_space = false);
     start_subword := get_range_as_string(buffer, Offset_Range.{left, right});
-    if start_subword.count == 0 then return;
+    if !start_subword then return;
 
     add_new_result_or_update_delta :: inline (new_result: string, delta: s64) {
         if word_complete.search_for_subwords {
@@ -5198,7 +5218,7 @@ word_complete_search :: () {
         search_in_buffer(to_string(other.bytes), skip_left = -1, skip_right = -1, extra_delta = OTHER_BUFFER_PENALTY);
     }
 
-    if !word_complete.results.count then return;
+    if !word_complete.results then return;
 
     quick_sort(word_complete.results, (a, b) => cast(s64) ((a.cursor_delta) - (b.cursor_delta)));
 
@@ -5211,7 +5231,7 @@ word_complete_search :: () {
 word_complete_apply :: () {
     using word_complete;
     editor_id := get_visible_editor_id(editors.active_pane);
-    if !results || !open_editors[editor_id].cursors.count return;
+    if !results || !open_editors[editor_id].cursors return;
 
     editor, buffer := get_active_editor_and_buffer();
 
@@ -5335,7 +5355,20 @@ Search_Bar :: struct {
     regex_is_valid: bool;
     jumped:         bool;
 
-    Mode :: enum u8 { classic; dropdown; }
+    vim_pattern: Array(u8);  // last accepted pattern, independent of the regular search dialog
+    vim_original_cursors: Array(Cursor);
+    vim_original_main_cursor: s32;
+    vim_original_cursor: s32;
+    vim_backward: bool;     // last accepted direction; N must not change it
+    vim_prompt_backward: bool;
+    vim_count: s32 = 1;
+    vim_history: struct {
+        draft: string;
+        cursor: Text_Input.Cursor;
+        recalled: bool;
+    };
+
+    Mode :: enum u8 { classic; dropdown; vim; }
 }
 
 // What to select when dragging
