@@ -302,6 +302,7 @@ main :: () {
                 case .open_file_dialog;             handled = open_file_dialog_handle_event(event);
                 case .delete_file_dialog;           handled = dialog_handle_event(*delete_file_dialog, event);
                 case .go_to_line_dialog;            handled = go_to_line_dialog_handle_event(event);
+                case .definition_dialog;            handled = dialog_handle_event(*definition_dialog, event);
                 case .switch_to_project_dialog;     handled = switch_to_project_dialog_handle_event(event);
                 case .create_new_project_dialog;    handled = create_new_project_dialog_handle_event(event);
                 case .unsaved_buffers_dialog;       handled = dialog_handle_event(*unsaved_buffers_dialog, event);
@@ -971,6 +972,7 @@ Active_Global_Widget :: enum {
     open_file_dialog;
     delete_file_dialog;
     go_to_line_dialog;
+    definition_dialog;
     commands_dialog;
     switch_to_project_dialog;
     create_new_project_dialog;
@@ -1057,6 +1059,7 @@ focus_allocator: Allocator;
 #load "widgets/open_file_dialog.jai";
 #load "widgets/delete_file_dialog.jai";
 #load "widgets/go_to_line_dialog.jai";
+#load "widgets/definition_dialog.jai";
 #load "widgets/finder.jai";
 #load "widgets/unsaved_buffers.jai";
 #load "widgets/commands.jai";
@@ -1071,6 +1074,7 @@ focus_allocator: Allocator;
 
 #load "langs/common.jai";
 #load "langs/jai.jai";
+#load "langs/jai_navigation.jai";
 #load "langs/c.jai";
 #load "langs/cpp.jai";
 #load "langs/css.jai";

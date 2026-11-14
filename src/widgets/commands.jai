@@ -148,6 +148,7 @@ base_commands := #run -> [] Command {
         cmd( "Swap Selections",                   .swap_selections,                  .Single ),
 
         cmd( "Go To Line",                        .go_to_line,                       .Single ),
+        cmd( "Go To Definition",                  .go_to_definition,                 .Single ),
 
         cmd( "Close Editor",                      .close_editor,                     .Single ),
         cmd( "Close Other Editors In Pane",       .close_other_editors_in_pane,      .Single ),

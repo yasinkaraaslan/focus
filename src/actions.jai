@@ -154,6 +154,7 @@ ACTIONS_COMMON :: string.[
 ];
 
 ACTIONS_EDITORS :: #run arrays_concat(ACTIONS_COMMON, string.[
+    "go_to_definition",
     "select_word_or_create_another_cursor",
     "revert_select_word_or_create_another_cursor",
     "move_selection_to_next_word",

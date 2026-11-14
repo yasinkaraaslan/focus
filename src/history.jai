@@ -49,6 +49,12 @@ maybe_save_cursor_history :: () {
     if saved then array_reset_keeping_memory(*forward_history);
 }
 
+history_record_jump :: (editor_id: s64, cursor: Cursor) {
+    apply_edit_notifications();
+    maybe_save_cursor_position(editor_id, cursor, force = true, jump = true);
+    array_reset_keeping_memory(*forward_history);
+}
+
 move_back_in_cursor_history :: () -> moved: bool, editor_id: s64 = -1, cursor := Cursor.{} {
     if !global_history return false;
 
@@ -82,25 +88,27 @@ move_back_in_cursor_history :: () -> moved: bool, editor_id: s64 = -1, cursor :=
         }
         if last_global_frame.editor_id != editor_id break;
         if !editor break;
+        if has_editor_history && last_editor_frame.jump break;
         if has_editor_history && editor && abs(current_line - offset_to_line(editor, buffer, last_editor_frame.pos, safe = true)) >= MIN_LINE_THRESHOLD break;
     }
 
+    if forward_history then peek_pointer(forward_history).jump = last_editor_frame.jump;
     prev_cursor := Cursor.{ pos = last_editor_frame.pos, sel = last_editor_frame.sel };
     return true, last_global_frame.editor_id, prev_cursor;
 }
 
 move_forward_in_cursor_history :: () -> moved: bool, editor_id: s64 = -1, cursor := Cursor.{} {
     if !forward_history return false;
+    frame := pop(*forward_history);
 
     // Save current cursor position in the history
     editor_id := get_visible_editor_id(editors.active_pane);
-    if editor_id {
+    if editor_id >= 0 {
         editor := *open_editors[editor_id];
         cursor := get_main_cursor(editor);
-        maybe_save_cursor_position(editor_id, cursor);
+        maybe_save_cursor_position(editor_id, cursor, force = frame.jump, jump = frame.jump);
     }
 
-    frame := pop(*forward_history);
     next_cursor := Cursor.{ pos = frame.pos, sel = frame.sel };
 
     return true, frame.editor_id, next_cursor;
@@ -142,7 +150,7 @@ history_reset_last_seen_cursor :: () {
 
 #scope_file
 
-maybe_save_cursor_position :: (editor_id: s64, cursor: Cursor, force := false) -> saved: bool {
+maybe_save_cursor_position :: (editor_id: s64, cursor: Cursor, force := false, jump := false) -> saved: bool {
     if editor_id < 0 return false;
 
     editor, buffer := get_editor_and_buffer(editor_id);
@@ -151,6 +159,11 @@ maybe_save_cursor_position :: (editor_id: s64, cursor: Cursor, force := false) -
     last_frame := ringbuffer_peek_pointer(editor_history);
     last_global_frame := ifx global_history then peek_pointer(global_history) else null;
     need_new_global_frame := !last_global_frame || last_global_frame.editor_id != editor_id;
+
+    if jump && last_frame && !need_new_global_frame && last_frame.pos == cursor.pos && last_frame.sel == cursor.sel {
+        last_frame.jump = true;
+        return true;
+    }
 
     if !force && last_frame && !need_new_global_frame {
         last_line    := offset_to_line(editor, buffer, last_frame.pos, safe = true);
@@ -165,7 +178,7 @@ maybe_save_cursor_position :: (editor_id: s64, cursor: Cursor, force := false) -
     }
 
     history_debug_print(">> EDITOR %, FRAME %, pos = %\n", editor_id, editor_history.total, cursor.pos);
-    ringbuffer_add(editor_history, .{ pos = cursor.pos, sel = cursor.sel });
+    ringbuffer_add(editor_history, .{ pos = cursor.pos, sel = cursor.sel, jump = jump });
 
     return true;
 }
@@ -223,6 +236,7 @@ last_seen_cursor: struct {
 Editor_History_Frame :: struct {
     pos: s32;
     sel: s32;
+    jump: bool;
 }
 
 Global_History_Frame :: struct {

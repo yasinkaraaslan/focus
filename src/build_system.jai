@@ -244,6 +244,7 @@ show_build_panel :: () {
         case .kill_running_command_dialog;      #through;
         case .finder;                           #through;
         case .go_to_line_dialog;                #through;
+        case .definition_dialog;                #through;
         case .switch_to_project_dialog;         #through;
         case .create_new_project_dialog;        #through;
         case .theme_dialog;                     #through;

@@ -67,6 +67,7 @@ delete_range_raw :: (using buffer: *Buffer, start: s32, end: s32, $notify := tru
 
     lock(*buffer.content_lock);
     delete_range(*bytes, start, len);
+    buffer.content_revision += 1;
     unlock(*buffer.content_lock);
 
     #if notify add_edit_notification(buffer, start, end - start, 0);
@@ -81,6 +82,7 @@ insert_string_raw :: (buffer: *Buffer, offset: s32, str: string, $notify := true
 
     lock(*buffer.content_lock);
     insert_at(*buffer.bytes, offset, bytes);
+    buffer.content_revision += 1;
     unlock(*buffer.content_lock);
 
     #if notify add_edit_notification(buffer, offset, 0, str.count);
@@ -1149,6 +1151,7 @@ insert_final_newline :: (using buffer: *Buffer) {
     lock(*content_lock);
     resize(*bytes, bytes.count + 1);
     bytes[bytes.count - 1] = cast(u8) #char "\n";
+    buffer.content_revision += 1;
     unlock(*content_lock);
 
     rescan_for_lines(buffer);
@@ -1261,7 +1264,7 @@ create_an_empty_buffer :: () -> buffer_id: s64, created: bool {
     return buffer_id, true;
 }
 
-find_or_create_buffer :: (path: string) -> buffer_id: s64, created: bool {
+find_or_create_buffer :: (path: string, index_definitions := false) -> buffer_id: s64, created: bool {
     #if OS == .WINDOWS {
         if path.count > 248 return -1, false;  // Windows bad
     }
@@ -1324,6 +1327,8 @@ find_or_create_buffer :: (path: string) -> buffer_id: s64, created: bool {
     buffer_settings := get_settings(buffer);
     buffer.indentation.type = buffer_settings.indent_using;
     buffer.indentation.size = 0;
+
+    if index_definitions && buffer.lang == .Jai then refresh_jai_definition_index(buffer);
 
     return buffer_id, true;
 }
@@ -1617,6 +1622,10 @@ free_buffer :: (using buffer: *Buffer) {
     free(bytes);
     free(line_starts);
     free(tokens);
+    array_free(jai_definitions.symbols);
+    array_free(jai_definitions.scopes);
+    array_free(jai_definitions.loads);
+    array_free(jai_definitions.imports);
 
     for * undos deinit(it);
     for * redos deinit(it);
@@ -1880,6 +1889,8 @@ Buffer :: struct {
     settings: *Settings;  // a pointer to buffer-specific settings. Null means use global settings
 
     content_lock: Mutex;  // must hold while modifying content (or reading in a non-main thread)
+    content_revision: u64;
+    jai_definitions: Jai_Definition_Index;
 
     file: File_Info;
 

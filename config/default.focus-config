@@ -205,6 +205,7 @@ Ctrl-Shift-S                save_as
 
 Alt-Minus                   cursor_go_back
 Alt-Plus                    cursor_go_forward
+F12                         go_to_definition
 
 Ctrl-PageUp                 go_to_previous_buffer
 Ctrl-PageDown               go_to_next_buffer

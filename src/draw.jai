@@ -62,6 +62,7 @@ draw_frame :: () {
         case .commands_dialog;                  draw_commands_dialog();
         case .theme_dialog;                     draw_theme_dialog();
         case .language_dialog;                  draw_language_dialog();
+        case .definition_dialog;                draw_generic_choice_dialog(*definition_dialog, Ui_Id.definition_dialog, " Go to definition");
         case .kill_running_command_dialog;      draw_kill_running_command_dialog();
     }
 
@@ -2161,13 +2162,16 @@ draw_vim_search_bar :: (editor_id: s64, editor: *Editor, rect: Rect, input_id: U
     padding := floor(4 * dpi_scale);
     draw_rect(rect, Color.BACKGROUND_0, extra_draw_info = .{is_background = true});
     content_rect := shrink(rect, padding);
+
     status := "";
     if !is_empty(input.text) {
         status = ifx !regex_is_valid then "Invalid pattern" else ifx !results then "Pattern not found" else tprint("%/%", selected_result + 1, results.count);
     }
+
     status_width := cast(float) Simp.prepare_text(font_ui_small, status) + padding * 2;
     status_rect, input_rect := cut_right(content_rect, min(status_width, content_rect.w * 0.5));
     Simp.draw_prepared_text(font_ui_small, xx (status_rect.x + padding), xx (rect.y + (rect.h - font_ui_small.character_height) / 2), color = xx Color.UI_DIM);
+
     prompt := ifx vim_prompt_backward then "? " else "/ ";
     became_active := draw_text_input(*input, input_rect, input_id, active = editor_is_active, color = ifx regex_is_valid || !input.text then Color.UI_DEFAULT else Color.UI_ERROR_BRIGHT, prefix = prompt);
     if became_active then make_editor_active(editor_id);
@@ -2353,6 +2357,7 @@ draw_status_bar :: (using editor: Editor, buffer: Buffer, pane: *Editor_Pane, ed
         label := "NORMAL";
         background := status_bar_bg_color;
         foreground := Color.UI_DEFAULT;
+
         if vim.mode == .Insert {
             label = "INSERT";
             background = .CURSOR;
@@ -2362,6 +2367,7 @@ draw_status_bar :: (using editor: Editor, buffer: Buffer, pane: *Editor_Pane, ed
             label = "VISUAL";
             background = .SELECTION_ACTIVE;
         }
+
         // Reserve the widest label even when the UI font is proportional.
         mode_width := 0.0;
         for mode_label: string.["NORMAL", "INSERT", "VISUAL"] {
@@ -4595,6 +4601,7 @@ Ui_Id :: enum s64 {
     theme_dialog                :: -17;
     language_dialog             :: -18;
     color_picker_dialog         :: -19;
+    definition_dialog           :: -20;
 
     // The rest will be derived from loc
 }

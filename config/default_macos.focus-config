@@ -200,6 +200,7 @@ Cmd-Shift-S                     save_as
 
 Cmd-Opt-Minus                   cursor_go_back
 Cmd-Opt-Plus                    cursor_go_forward
+F12                             go_to_definition
 
 Cmd-Shift-Minus                 go_to_previous_buffer
 Cmd-Shift-Plus                  go_to_next_buffer

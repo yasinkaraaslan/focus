@@ -2,15 +2,19 @@
 // editor action path so readonly buffers, undo, rescanning and cursor updates agree.
 Vim_State :: struct {
     mode: enum { Normal; Insert; Visual; };
+
     pending: u32;
     count: s32;
     operator_count: s32;
+
     object_prefix: u32;
     object_operator: u32;
     object_count: s32;
+
     find_command: u32;
     find_operator: u32;
     find_count: s32;
+
     last_find_command: u32;
     last_find_char: u32;
 }
@@ -20,6 +24,7 @@ vim_action :: (editor: *Editor, buffer: *Buffer, action: Action_Editors, select 
     event.type = .KEYBOARD;
     event.key_pressed = 1;
     event.modifier_flags.shift_pressed = select;
+
     editor.cursor_moved = false;
     undo_count := buffer.undos.count;
     redo_count := buffer.redos.count;
@@ -40,13 +45,16 @@ vim_enter_normal :: (editor: *Editor, buffer: *Buffer) {
             if cursor.pos > start then cursor.pos = prev_char_offset(buffer.bytes, cursor.pos);
         }
     }
+
     last_command := editor.vim.last_find_command;
     last_char := editor.vim.last_find_char;
     editor.vim = .{};
     editor.vim.last_find_command = last_command;
     editor.vim.last_find_char = last_char;
+
     vim_action(editor, buffer, .escape);
     for * editor.cursors { it.sel = it.pos; }
+
     editor.cursor_moved = true;
     editor.refresh_selection = true;
     redraw_requested = true;
@@ -55,8 +63,10 @@ vim_enter_normal :: (editor: *Editor, buffer: *Buffer) {
 vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
     using editor.vim;
     redraw_requested = true;
+    normalize_cursor := true;
+
     defer {
-        if mode == .Normal && pending == 0 {
+        if normalize_cursor && mode == .Normal && pending == 0 {
             for * cursor : editor.cursors {
                 start := get_real_line_start_offset(buffer, offset_to_real_line(buffer, cursor.pos));
                 end := get_real_line_end_offset(buffer, offset_to_real_line(buffer, cursor.pos));
@@ -75,6 +85,7 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
         find_command = 0;
         find_operator = 0;
         find_count = 0;
+
         last_find_command = command;
         last_find_char = char;
         vim_find(editor, buffer, command, char, times, op);
@@ -96,6 +107,7 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
         count = min(cast(s32) 1000, count * 10 + cast(s32)(char - #char "0"));
         return;
     }
+
     times := max(cast(s32) 1, count);
     count = 0;
     op := pending;
@@ -115,7 +127,13 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
     }
 
     if op == #char "g" {
-        if char == #char "g" then vim_action(editor, buffer, .jump_to_file_start, mode == .Visual);
+        if char == #char "g" {
+            vim_action(editor, buffer, .jump_to_file_start, mode == .Visual);
+        } else if char == #char "d" && mode == .Normal {
+            // Opening another file can move the open_editors array.
+            normalize_cursor = false;
+            vim_action(editor, buffer, .go_to_definition);
+        }
         return;
     }
 
@@ -132,6 +150,7 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
         find_count = times;
         return;
     }
+
     if char == #char ";" || char == #char "," {
         if !last_find_command return;
         command := last_find_command;
@@ -153,6 +172,7 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
         for 1..times-1 {
             vim_action(editor, buffer, .move_down, true);
         }
+
         // cc preserves the first line's indentation and the final newline.
         if op == #char "c" {
             for * cursor : editor.cursors {
@@ -160,8 +180,10 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
                 if cursor.pos > cursor.sel && buffer.bytes[cursor.pos - 1] == #char "\n" then cursor.pos -= 1;
             }
         }
+
         has_text := false;
         for editor.cursors { if has_selection(it) then has_text = true; }
+
         vim_action(editor, buffer, .copy);
         if op != #char "y" && has_text {
             new_edit_group(buffer, editor);
@@ -169,6 +191,7 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
             new_edit_group(buffer, editor);
         }
         for * editor.cursors { it.sel = it.pos; }
+
         if op == #char "c" {
             vim_prepare_insert(editor, buffer, .At_Cursor);
             mode = .Insert;
@@ -189,6 +212,7 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
         case #char "$"; movement = .jump_to_line_end;
         case #char "G"; movement = .jump_to_file_end;
     }
+
     if char == #char "h" || char == #char "l" || char == #char "w" || char == #char "b" ||
        char == #char "W" || char == #char "B" || char == #char "e" || char == #char "E" {
         for * cursor : editor.cursors {
@@ -198,6 +222,7 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
                 if char == #char "w" then motion = #char "e";
                 if char == #char "W" then motion = #char "E";
             }
+
             for step: 1..times {
                 start := get_real_line_start_offset(buffer, offset_to_real_line(buffer, cursor.pos));
                 end := get_real_line_end_offset(buffer, offset_to_real_line(buffer, cursor.pos));
@@ -207,6 +232,7 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
                 if motion == #char "b" || motion == #char "B" then cursor.pos = vim_word_backward(buffer, cursor.pos, motion == #char "B");
                 if motion == #char "e" || motion == #char "E" then cursor.pos = vim_word_end(buffer, cursor.pos, motion == #char "E", include_current = motion != char && step == 1);
             }
+
             if op && (motion == #char "e" || motion == #char "E") && cursor.pos >= cursor.sel && cursor.pos < buffer.bytes.count {
                 cursor.pos = next_char_offset(buffer.bytes, cursor.pos);
             }
@@ -274,6 +300,7 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
                     pending = char;
                     operator_count = times;
                 }
+
             case #char "v";
                 if mode == .Visual {
                     vim_enter_normal(editor, buffer);
@@ -281,6 +308,7 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
                     mode = .Visual;
                     for * editor.cursors { it.sel = it.pos; }
                 }
+
             case #char "i";
                 vim_prepare_insert(editor, buffer, .At_Cursor);
                 mode = .Insert;
@@ -293,6 +321,7 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
             case #char "A";
                 vim_prepare_insert(editor, buffer, .Line_End);
                 mode = .Insert;
+
             case #char "J";
                 new_edit_group(buffer, editor);
                 before := NewArray(editor.cursors.count, Cursor,, allocator = temp);
@@ -305,6 +334,7 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
                         cursor.pos = get_real_line_end_offset(buffer, last);
                     }
                 }
+
                 undo_count := buffer.undos.count;
                 vim_action(editor, buffer, .join_lines);
                 new_edit_group(buffer, editor);
@@ -317,6 +347,7 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
                     for * cursor, i: editor.cursors { cursor.* = before[i]; }
                 }
                 if mode == .Visual then mode = .Normal;
+
             case #char "o"; #through;
             case #char "O";
                 if mode == .Visual {
@@ -336,9 +367,11 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
                 vim_action(editor, buffer, action);
                 vim_prepare_insert(editor, buffer, .At_Cursor, start_group = false);
                 mode = .Insert;
+
             case #char "C";
                 vim_change_to_end(editor, buffer);
                 mode = .Insert;
+
             case #char "x"; #through;
             case #char "p"; #through;
             case #char "u"; #through;
@@ -376,8 +409,10 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
                 }
                 new_edit_group(buffer, editor);
                 if mode == .Visual then mode = .Normal;
+
             case #char "/"; #through;
             case #char "?"; vim_search_open(editor, buffer, char == #char "?", times);
+
             case #char "n"; #through;
             case #char "N"; vim_search_repeat(editor, buffer, char == #char "N", times);
         }
@@ -387,7 +422,9 @@ vim_handle_char :: (editor: *Editor, buffer: *Buffer, char: u32) {
     if op {
         has_text := false;
         for editor.cursors { if has_selection(it) then has_text = true; }
+
         if !has_text return;
+
         vim_action(editor, buffer, .copy);
         if op != #char "y" {
             new_edit_group(buffer, editor);
@@ -403,11 +440,13 @@ vim_search_open :: (editor: *Editor, buffer: *Buffer, backward: bool, times: s32
     using bar := *editor.search_bar;
     free(vim_history.draft);
     vim_history = .{};
+
     reset(*vim_original_cursors);
     for editor.cursors { add(*vim_original_cursors, it); }
     vim_original_main_cursor = editor.main_cursor;
     vim_original_cursor = editor.original_cursor;
     original_cursor_position = editor.cursors[editor.main_cursor];
+
     vim_prompt_backward = backward;
     vim_count = times;
     mode = .vim;
@@ -416,6 +455,7 @@ vim_search_open :: (editor: *Editor, buffer: *Buffer, backward: bool, times: s32
     regex_search = true;
     whole_word = false;
     case_sensitive_toggled_manually = false;
+
     text_input_fully_clear(*input);
     reset_search_results(bar);
     redraw_requested = true;
@@ -436,6 +476,7 @@ vim_search_position :: (editor: *Editor, buffer: Buffer, offset: s32) -> s32 {
 vim_search_index :: (editor: *Editor, buffer: Buffer, origin: s32, backward: bool, times: s32) -> s32 {
     bar := *editor.search_bar;
     if !bar.results return -1;
+
     index: s64 = 0;
     if backward {
         index = bar.results.count - 1;
@@ -461,6 +502,7 @@ vim_search_move :: (editor: *Editor, buffer: Buffer, index: s32) {
     cursor.pos = vim_search_position(editor, buffer, results[index].offset);
     if editor.vim.mode != .Visual then cursor.sel = cursor.pos;
     cursor.col_wanted = -1;
+
     editor.cursor_moved = true;
     editor.refresh_selection = true;
     editor.scroll_to_cursor = .yes;
@@ -473,6 +515,7 @@ vim_search_restore_cursors :: (editor: *Editor) {
     using bar := *editor.search_bar;
     resize(*editor.cursors, vim_original_cursors.count);
     for vim_original_cursors { editor.cursors[it_index] = it; }
+
     editor.main_cursor = vim_original_main_cursor;
     editor.original_cursor = vim_original_cursor;
     editor.refresh_selection = true;
@@ -495,12 +538,14 @@ vim_search_finish :: (editor: *Editor, buffer: *Buffer, accept: bool) {
             replace_text(*input, to_string(vim_pattern));
             search_and_update_results(editor, buffer, jump = true);
         }
+
         if !is_empty(input.text) {
             reset(*vim_pattern);
             for to_string(input.text) { add(*vim_pattern, it); }
             vim_backward = vim_prompt_backward;
         }
     }
+
     close_search_bar(editor, jump_to_original_cursor = !accept, keep_results = accept);
     if !accept then reset_search_results(bar);
     editor.refresh_selection = true;
@@ -509,13 +554,16 @@ vim_search_finish :: (editor: *Editor, buffer: *Buffer, accept: bool) {
 
 vim_search_repeat :: (editor: *Editor, buffer: *Buffer, opposite: bool, times: s32) {
     using bar := *editor.search_bar;
+
     if !vim_pattern return;
+
     replace_text(*input, to_string(vim_pattern));
     mode = .vim;
     regex_search = true;
     whole_word = false;
     case_sensitive_toggled_manually = false;
     search_and_update_results(editor, buffer);
+
     origin := editor.cursors[editor.main_cursor].pos;
     index := vim_search_index(editor, buffer, origin, vim_backward != opposite, times);
     vim_search_move(editor, buffer, index);
@@ -538,6 +586,7 @@ vim_search_handle_event :: (editor: *Editor, buffer: *Buffer, event: Input.Event
         vim_search_finish(editor, buffer, false);
         return true;
     }
+
     if ctrl && (key == #char "G" || key == #char "T") {
         if !is_empty(results) {
             delta := ifx vim_prompt_backward then -1 else 1;
@@ -547,6 +596,7 @@ vim_search_handle_event :: (editor: *Editor, buffer: *Buffer, event: Input.Event
         }
         return true;
     }
+
     old_search_str := copy_temporary_string(to_string(input.text));
     if key == .ARROW_UP || (ctrl && key == #char "P") {
         if !vim_pattern || vim_history.recalled return true;
@@ -577,6 +627,7 @@ vim_search_handle_event :: (editor: *Editor, buffer: *Buffer, event: Input.Event
         // events reach the prompt (the main event loop suppresses handled text).
         if !text_input_handle_event(*input, event) return false;
     }
+
     if old_search_str != to_string(input.text) then search_and_update_results(editor, buffer, jump = true);
     return true;
 }
@@ -590,6 +641,7 @@ vim_word_class :: (byte: u8, big := false) -> int {
 
 vim_word_forward :: (buffer: Buffer, pos: s32, big := false) -> s32 {
     if pos >= buffer.bytes.count return pos;
+
     kind := vim_word_class(buffer.bytes[pos], big);
     while pos < buffer.bytes.count && vim_word_class(buffer.bytes[pos], big) == kind {
         pos = next_char_offset(buffer.bytes, pos);
@@ -606,6 +658,7 @@ vim_word_backward :: (buffer: Buffer, pos: s32, big := false) -> s32 {
     while pos > 0 && vim_word_class(buffer.bytes[pos]) == 0 {
         pos = prev_char_offset(buffer.bytes, pos);
     }
+
     kind := vim_word_class(buffer.bytes[pos], big);
     while pos > 0 {
         previous := prev_char_offset(buffer.bytes, pos);
@@ -623,6 +676,7 @@ vim_word_end :: (buffer: Buffer, pos: s32, big := false, include_current := fals
         pos = next_char_offset(buffer.bytes, pos);
     }
     if pos >= buffer.bytes.count return xx buffer.bytes.count;
+
     kind := vim_word_class(buffer.bytes[pos], big);
     while true {
         next := next_char_offset(buffer.bytes, pos);
@@ -645,6 +699,7 @@ vim_object_range :: (buffer: Buffer, origin: s32, object: u32, around: bool, tim
             if vim_word_class(buffer.bytes[previous], big) != kind break;
             start = previous;
         }
+
         end := origin;
         for step: 1..times {
             // iw counts whitespace runs; aw counts only words.
@@ -739,9 +794,11 @@ vim_select_object :: (editor: *Editor, buffer: *Buffer, object: u32, around: boo
     if object != #char "w" && object != #char "W" && object != #char "\"" && object != #char "'" && object != #char "`" {
         vim_prepare_pair_tokens(buffer);
     }
+
     before := NewArray(editor.cursors.count, Cursor,, allocator = temp);
     any_match := false;
     any_text := false;
+
     for * cursor, i: editor.cursors {
         before[i] = cursor.*;
         start, end, found := vim_object_range(buffer, cursor.pos, object, around, times);
@@ -755,7 +812,9 @@ vim_select_object :: (editor: *Editor, buffer: *Buffer, object: u32, around: boo
         cursor.col_wanted = -1;
         if start != end then any_text = true;
     }
+
     if !any_match return;
+
     editor.cursor_moved = true;
     editor.refresh_selection = true;
     cursors_start_blinking();
@@ -764,6 +823,7 @@ vim_select_object :: (editor: *Editor, buffer: *Buffer, object: u32, around: boo
     // Failed or empty ranges must never fall through to delete_right_char.
     if any_text {
         new_edit_group(buffer, editor);
+
         vim_action(editor, buffer, .copy);
         if op != #char "y" {
             undo_count := buffer.undos.count;
@@ -777,6 +837,7 @@ vim_select_object :: (editor: *Editor, buffer: *Buffer, object: u32, around: boo
             }
         }
     }
+
     for * cursor, i: editor.cursors {
         if op == #char "y" then cursor.* = before[i];
         cursor.sel = cursor.pos;
@@ -816,11 +877,13 @@ vim_matching_pair :: (buffer: Buffer, origin: s32) -> target: s32, found: bool {
         open_index := find_index_from_left("([{", byte);
         close_index := find_index_from_left(")]}", byte);
         if open_index < 0 && close_index < 0 continue;
+
         forward := open_index >= 0;
         pair_index := ifx forward then open_index else close_index;
         counterpart := (ifx forward then ")]}" else "([{")[pair_index];
         balance := 1;
         pos := i;
+
         while true {
             if forward {
                 pos += 1;
@@ -829,6 +892,7 @@ vim_matching_pair :: (buffer: Buffer, origin: s32) -> target: s32, found: bool {
                 if pos == 0 break;
                 pos -= 1;
             }
+
             if !vim_pair_delimiter(buffer, pos) continue;
             if buffer.bytes[pos] == byte then balance += 1;
             if buffer.bytes[pos] == counterpart then balance -= 1;
@@ -847,11 +911,13 @@ vim_find_target :: (buffer: Buffer, origin: s32, command: u32, char: u32, times:
     line := offset_to_real_line(buffer, origin);
     start := get_real_line_start_offset(buffer, line);
     end := get_real_line_end_offset(buffer, line);
+
     utf8 := convert_utf32_to_utf8(char);
     needle := to_string(*utf8);
     pos := origin;
     remaining := times;
     first := true;
+
     while remaining > 0 {
         if forward {
             if pos >= end return origin, false;
@@ -861,6 +927,7 @@ vim_find_target :: (buffer: Buffer, origin: s32, command: u32, char: u32, times:
             if pos <= start return origin, false;
             pos = prev_char_offset(buffer.bytes, pos);
         }
+
         matches := pos + needle.count <= end && cast(string) to_view(buffer.bytes, pos, needle.count) == needle;
         if matches && !(repeating && till && first) then remaining -= 1;
         first = false;
@@ -892,7 +959,9 @@ vim_find :: (editor: *Editor, buffer: *Buffer, command: u32, char: u32, times: s
         if !op && editor.vim.mode != .Visual then cursor.sel = cursor.pos;
         if has_selection(cursor) then any_selection = true;
     }
+
     if !any_match return;
+
     editor.cursor_moved = true;
     editor.refresh_selection = true;
     cursors_start_blinking();
@@ -924,6 +993,7 @@ Vim_Insert_Position :: enum { At_Cursor; Append; First_Nonblank; Line_End; }
 
 vim_prepare_insert :: (editor: *Editor, buffer: *Buffer, where: Vim_Insert_Position, start_group := true) {
     if start_group then new_edit_group(buffer, editor);
+
     organise_cursors(editor);
     context.current_editor_id = get_active_editor_id();
     defer context.current_editor_id = -1;
@@ -956,6 +1026,7 @@ vim_prepare_insert :: (editor: *Editor, buffer: *Buffer, where: Vim_Insert_Posit
         resize(*buffer.cursors, editor.cursors.count);
         for cursor, i : editor.cursors { buffer.cursors[i] = cursor; }
     }
+
     delta: s32;
     for * cursor, i : editor.cursors {
         position := positions[i];
@@ -972,6 +1043,7 @@ vim_prepare_insert :: (editor: *Editor, buffer: *Buffer, where: Vim_Insert_Posit
         cursor.sel = cursor.pos;
         cursor.col_wanted = -1;
     }
+
     if buffer.dirty {
         rescan_for_lines(buffer);
         if line_wrap_is_active(editor) then rescan_for_wrapped_lines(editor, buffer);
@@ -979,7 +1051,9 @@ vim_prepare_insert :: (editor: *Editor, buffer: *Buffer, where: Vim_Insert_Posit
         maybe_make_temporary_editor_permanent();
         buffer.last_edit_time = frame_time64;
     }
+
     organise_cursors(editor);
+
     editor.cursor_moved = true;
     editor.refresh_selection = true;
     cursors_start_blinking();
@@ -997,6 +1071,7 @@ vim_change_to_end :: (editor: *Editor, buffer: *Buffer) {
         }
         if has_selection(cursor) then has_text = true;
     }
+
     if has_text {
         vim_action(editor, buffer, .copy);
         vim_action(editor, buffer, .delete_right_char);
@@ -1014,6 +1089,7 @@ vim_command_char :: (key: Input.Key_Code, shift: bool) -> u32 {
     if char >= #char "A" && char <= #char "Z" {
         return ifx shift then char else char + 32;
     }
+
     if char < 32 || char >= 127 return 0;
     if shift {
         plain   := "`1234567890-=[]\\;',./";

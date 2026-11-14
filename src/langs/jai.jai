@@ -90,88 +90,34 @@ tokenize_jai_for_indentation :: (buffer: *Buffer) -> [] Indentation_Token /* tem
     tokenizer := get_jai_tokenizer(buffer);
 
     while true {
-        using tokenizer;
+        src := next_jai_source_token(*tokenizer);
+        token: Indentation_Token;
+        token.start = src.start;
+        token.len = src.len;
 
-        token := start_new_token(*tokenizer);
+        if src.type == {
+            case .punctuation;
+                if src.punctuation == {
+                    case .l_paren;   token.type = .open;  token.kind = .paren;
+                    case .l_bracket; token.type = .open;  token.kind = .bracket;
+                    case .l_brace;   token.type = .open;  token.kind = .brace;
 
-        // A simplified parsing loop which does no highlighting.
-        // NOTE: This leads to code repetition but this is done so that the main highlighting code is faster
-        if t < max_t {
-            char := t.*;
+                    case .r_paren;   token.type = .close; token.kind = .paren;
+                    case .r_bracket; token.type = .close; token.kind = .bracket;
+                    case .r_brace;   token.type = .close; token.kind = .brace;
 
-            if ascii_is_alpha(char) || char == #char "_" {
-                t += 1;
-                read_jai_identifier_string(*tokenizer);
-                token.type = .identifier;
-            } else if ascii_is_digit(char) {
-                t += 1;
-                parse_number(*tokenizer, *token, buffer, do_highlighting = false);
-            } else if char == #char "#" {
-                t += 1;
-                parse_directive(*tokenizer, *token, buffer, do_highlighting = false);
-            } else if char == #char "/" {
-                t += 1;
-                parse_slash_or_comment(*tokenizer, *token);
-            } else {
-                t += 1;
-                if char == {
-                    case #char "{";  token.type = .punctuation; token.punctuation = .l_brace;
-                    case #char "}";  token.type = .punctuation; token.punctuation = .r_brace;
-                    case #char "(";  token.type = .punctuation; token.punctuation = .l_paren;
-                    case #char ")";  token.type = .punctuation; token.punctuation = .r_paren;
-                    case #char "[";  token.type = .punctuation; token.punctuation = .l_bracket;
-                    case #char "]";  token.type = .punctuation; token.punctuation = .r_bracket;
-
-                    case #char ".";  parse_period_or_enum_variant(*tokenizer, *token);
-                    case #char "\""; parse_string_literal        (*tokenizer, *token);
-                    case #char ":";  parse_colon                 (*tokenizer, *token);
-                    case #char "@";  parse_note                  (*tokenizer, *token);
-
-                    case;            token.type = .invalid;  // we don't care about invalid tokens here
+                    case;            continue;
                 }
 
-            }
-
-            if t >= max_t then t = max_t;  // TODO: do we need this?
-            set_token_len(*tokenizer, *token);
+            case .directive;
+                token.type = ifx src.directive == .directive_string then .maybe_multiline else .unimportant;
+            case .multiline_comment; token.type = .maybe_multiline;
+            case .eof;               token.type = .eof;
+            case;                    token.type = .unimportant;
         }
 
-        src := token;
-
-        {
-            token: Indentation_Token = ---;
-            token.start = src.start;
-            token.len   = src.len;
-
-            if src.type == {
-                case .punctuation;
-                    if src.punctuation == {
-                        case .l_paren;      token.type = .open;  token.kind = .paren;
-                        case .l_bracket;    token.type = .open;  token.kind = .bracket;
-                        case .l_brace;      token.type = .open;  token.kind = .brace;
-
-                        case .r_paren;      token.type = .close; token.kind = .paren;
-                        case .r_bracket;    token.type = .close; token.kind = .bracket;
-                        case .r_brace;      token.type = .close; token.kind = .brace;
-
-                        case;               continue;
-                    }
-
-                case .directive;
-                    // In this version of the indentation tokenizer we don't detect .multiline_string and instead
-                    // mark the whole multiline string as .directive_string
-                    if src.directive == .directive_string then token.type = .maybe_multiline;
-
-                case .multiline_comment;    token.type = .maybe_multiline;
-                case .multiline_string;     token.type = .maybe_multiline;
-                case;                       token.type = .unimportant;
-            }
-
-            array_add(*tokens, token);
-
-        }
-
-        if t >= max_t break;
+        array_add(*tokens, token);
+        if src.type == .eof break;
     }
 
     return tokens;
@@ -179,14 +125,90 @@ tokenize_jai_for_indentation :: (buffer: *Buffer) -> [] Indentation_Token /* tem
 
 #scope_file
 
+// Positions refer to source bytes. Avoid the lookahead used for presentation.
+next_jai_source_token :: (using tokenizer: *Jai_Tokenizer, $for_definitions := false) -> Token {
+    token := start_new_token(tokenizer);
+    if t >= max_t {
+        token.type = .eof;
+        token.len = 0;
+        return token;
+    }
+
+    char := t.*;
+    t += 1;
+
+    if ascii_is_alpha(char) || char == #char "_" {
+        read_jai_identifier_string(tokenizer);
+        token.type = .identifier;
+        #if for_definitions {
+            maybe_mark_as_keyword(*token, string.{t - start_t, start_t});
+        }
+    } else if ascii_is_digit(char) {
+        parse_number(tokenizer, *token, null, do_highlighting = false);
+    } else if char == #char "#" {
+        parse_directive(tokenizer, *token, null, do_highlighting = false, for_definitions = for_definitions);
+        #if for_definitions {
+            if token.type == .identifier then token.type = .invalid;  // unknown directive
+        }
+        if token.type == .directive && token.directive == .directive_string {
+            token.len = cast(s32) (t - (buf.data + token.start));
+        }
+        return token;
+    } else if char == #char "/" {
+        parse_slash_or_comment(tokenizer, *token);
+    } else {
+        if char == {
+            case #char "{";  token.type = .punctuation; token.punctuation = .l_brace;
+            case #char "}";  token.type = .punctuation; token.punctuation = .r_brace;
+            case #char "(";  token.type = .punctuation; token.punctuation = .l_paren;
+            case #char ")";  token.type = .punctuation; token.punctuation = .r_paren;
+            case #char "[";  token.type = .punctuation; token.punctuation = .l_bracket;
+            case #char "]";  token.type = .punctuation; token.punctuation = .r_bracket;
+            case #char ",";  token.type = .punctuation; token.punctuation = .comma;
+            case #char ";";  token.type = .punctuation; token.punctuation = .semicolon;
+            case #char ".";
+                #if for_definitions {
+                    token.type = .punctuation;
+                    token.punctuation = .period;
+                    if t < max_t && t.* == #char "." {
+                        token.type = .invalid;  // range operator, not a qualifier
+                        t += 1;
+                    }
+                } else {
+                    parse_period_or_enum_variant(tokenizer, *token);
+                }
+            case #char "$";  token.type = .punctuation; token.punctuation = .dollar;
+            case #char "="; #through;
+            case #char "!"; #through;
+            case #char "&"; #through;
+            case #char "|";
+                token.type = .invalid;
+                #if for_definitions {
+                    second := ifx char == #char "!" then cast(u8) #char "=" else char;
+                    if t < max_t && t.* == second then t += 1;
+                }
+            case #char "-";
+                token.type = .operation;
+                token.operation = .minus;
+                if t < max_t && t.* == #char ">" {
+                    token.operation = .arrow;
+                    t += 1;
+                }
+            case #char "\""; parse_string_literal(tokenizer, *token);
+            case #char ":";  parse_colon(tokenizer, *token);
+            case #char "@";  parse_note(tokenizer, *token);
+            case;            token.type = .invalid;
+        }
+    }
+
+    set_token_len(tokenizer, *token);
+    return token;
+}
+
 // We're using a separate tokenizer here because we have to keep track of last 2 tokens in many places
 // and we can't use a global variable for that because of threading
 get_jai_tokenizer :: (using buffer: *Buffer, start_offset := -1, count := -1) -> Jai_Tokenizer {
-    tokenizer: Jai_Tokenizer;
-
-    tokenizer.buf    = to_string(bytes);
-    tokenizer.max_t  = bytes.data + bytes.count;
-    tokenizer.t      = bytes.data;
+    tokenizer := get_jai_tokenizer(to_string(bytes));
 
     if start_offset >= 0 {
         start_offset = clamp(start_offset, 0, bytes.count - 1);
@@ -195,6 +217,14 @@ get_jai_tokenizer :: (using buffer: *Buffer, start_offset := -1, count := -1) ->
         tokenizer.max_t = tokenizer.t + count;
     }
 
+    return tokenizer;
+}
+
+get_jai_tokenizer :: (source: string) -> Jai_Tokenizer {
+    tokenizer: Jai_Tokenizer;
+    tokenizer.buf = source;
+    tokenizer.t = source.data;
+    tokenizer.max_t = source.data + source.count;
     return tokenizer;
 }
 
@@ -414,7 +444,7 @@ parse_number :: (using tokenizer: *Jai_Tokenizer, token: *Token, buffer: *Buffer
     set_token_len(tokenizer, token);
 }
 
-parse_directive :: (using tokenizer: *Jai_Tokenizer, token: *Token, buffer: *Buffer, $do_highlighting := true) {
+parse_directive :: (using tokenizer: *Jai_Tokenizer, token: *Token, buffer: *Buffer, $do_highlighting := true, $for_definitions := false) {
     token.type = .identifier;
 
     {
@@ -436,11 +466,17 @@ parse_directive :: (using tokenizer: *Jai_Tokenizer, token: *Token, buffer: *Buf
         token.type = .directive;
         token.directive = directive;
 
-        if directive == {
-            case .directive_scope_export;     start_scope(tokenizer, start_offset, .scope_export);
-            case .directive_scope_module;     start_scope(tokenizer, start_offset, .scope_module);
-            case .directive_scope_file;       start_scope(tokenizer, start_offset, .scope_file);
+        #if !for_definitions {
+            if directive == {
+                case .directive_scope_export;     start_scope(tokenizer, start_offset, .scope_export);
+                case .directive_scope_module;     start_scope(tokenizer, start_offset, .scope_module);
+                case .directive_scope_file;       start_scope(tokenizer, start_offset, .scope_file);
+            }
         }
+    }
+
+    #if for_definitions {
+        if token.directive != .directive_string return;
     }
 
     // Check for modifiers
@@ -503,9 +539,9 @@ parse_directive :: (using tokenizer: *Jai_Tokenizer, token: *Token, buffer: *Buf
         #if do_highlighting then highlight(tokenizer, *next_token, buffer);
 
         start := cast(s32) (t - buf.data);
-        end   := find_index_from_left(buf, identifier_str, start_index = start);
+        end   := find_jai_here_string_end(tokenizer, identifier_str);
         if end < 0 {
-            end = buf.count;
+            end = xx (max_t - buf.data);
             t = max_t;
         } else {
             t = buf.data + end + identifier_str.count;
@@ -530,6 +566,26 @@ parse_directive :: (using tokenizer: *Jai_Tokenizer, token: *Token, buffer: *Buf
             }
         }
     }
+}
+
+find_jai_here_string_end :: (using tokenizer: Jai_Tokenizer, delimiter: string) -> s32 {
+    cursor := t;
+    while cursor < max_t {
+        // The terminator is the first identifier on a line. Jai allows
+        // indentation and punctuation after the delimiter.
+        while cursor < max_t && cursor.* != #char "\n" cursor += 1;
+        if cursor == max_t break;
+        cursor += 1;
+        while cursor < max_t && (cursor.* == #char " " || cursor.* == #char "\t") cursor += 1;
+
+        remaining := max_t - cursor;
+        if remaining < delimiter.count continue;
+        if memcmp(cursor, delimiter.data, delimiter.count) != 0 continue;
+        if remaining == delimiter.count || !ascii_is_alnum(cursor[delimiter.count]) {
+            return xx (cursor - buf.data);
+        }
+    }
+    return -1;
 }
 
 parse_colon :: (using tokenizer: *Jai_Tokenizer, token: *Token) {
@@ -827,3 +883,517 @@ MAX_DIRECTIVE_LENGTH :: #run -> s32 {
 }
 
 MAX_IDENTIFIER_LENGTH :: 512;
+
+
+#scope_export
+
+Jai_Definition_Index :: struct {
+    revision: u64;
+    ready: bool;
+    symbols: [..] Jai_Declaration;
+    scopes: [..] Jai_Lexical_Scope;
+    loads: [..] Jai_Source_Link;
+    imports: [..] Offset_Range;
+}
+
+Jai_Source_Link :: struct {
+    path: Offset_Range;
+    inactive: bool;
+}
+
+Jai_Declaration :: struct {
+    name: Offset_Range;
+    scope: s32;  // zero means file level
+    file_private: bool;
+}
+
+Jai_Lexical_Scope :: struct {
+    start, end: s32;
+    depth: s32;
+}
+
+refresh_jai_definition_index :: (buffer: *Buffer) {
+    lock(*buffer.content_lock);
+    defer unlock(*buffer.content_lock);
+
+    index := *buffer.jai_definitions;
+    if index.ready && index.revision == buffer.content_revision return;
+
+    array_reset_keeping_memory(*index.symbols);
+    array_reset_keeping_memory(*index.scopes);
+    array_reset_keeping_memory(*index.loads);
+    array_reset_keeping_memory(*index.imports);
+
+    scan_jai_declarations(to_string(buffer.bytes), index);
+    index.revision = buffer.content_revision;
+    index.ready = true;
+}
+
+jai_identifier_at :: (source: string, offset: s32, include_right_edge := true) -> name: Offset_Range, qualified: bool {
+    tokenizer := get_jai_tokenizer(source);
+    previous: Token;
+    right_edge: Offset_Range;
+    right_edge_qualified := false;
+
+    while true {
+        token := next_jai_source_token(*tokenizer, for_definitions = true);
+        if token.start > offset || token.type == .eof break;
+        if token.type == .comment || token.type == .multiline_comment {
+            if offset < token.start + token.len return .{}, false;
+            continue;
+        }
+
+        if token.type == .identifier {
+            span := Offset_Range.{token.start, token.start + token.len};
+            after_dot := previous.type == .punctuation && previous.punctuation == .period;
+            if offset < span.end return span, after_dot;
+            if include_right_edge && offset == span.end {
+                right_edge = span;
+                right_edge_qualified = after_dot;
+            }
+        }
+        previous = token;
+    }
+
+    return right_edge, right_edge_qualified;
+}
+
+jai_names_equal :: (a: string, b: string) -> bool {
+    if a == b return true;
+    if find_index_from_left(a, #char "\\") < 0 && find_index_from_left(b, #char "\\") < 0 return false;
+
+    // Jai lets an identifier contain backslashes and spaces after them.
+    i, j := 0;
+    while i < a.count || j < b.count {
+        while i < a.count && (a[i] == #char "\\" || a[i] == #char " ") i += 1;
+        while j < b.count && (b[j] == #char "\\" || b[j] == #char " ") j += 1;
+        if i == a.count || j == b.count return i == a.count && j == b.count;
+        if a[i] != b[j] return false;
+        i += 1;
+        j += 1;
+    }
+    return true;
+}
+
+
+#scope_file
+
+Jai_Index_Token :: struct {
+    using token: Token;
+    close: s32 = -1;
+    procedure_scope: s32;
+    ignore_body: bool;
+    conditional_body: bool;
+    inactive_delta: s32;
+}
+
+scan_jai_declarations :: (source: string, index: *Jai_Definition_Index) {
+    tokens: [..] Jai_Index_Token;
+    defer array_free(tokens);
+    openings: [..] s32;
+    defer array_free(openings);
+
+    tokenizer := get_jai_tokenizer(source);
+    while true {
+        token := next_jai_source_token(*tokenizer, for_definitions = true);
+        if token.type == .eof break;
+        if token.type == .comment || token.type == .multiline_comment continue;
+
+        i := cast(s32) tokens.count;
+        array_add(*tokens, .{token = token});
+        if token.type != .punctuation continue;
+
+        if token.punctuation == {
+            case .l_brace;   #through;
+            case .l_paren;   #through;
+            case .l_bracket; array_add(*openings, i);
+            case .r_brace;   #through;
+            case .r_paren;   #through;
+            case .r_bracket;
+                if !openings continue;
+                if token.punctuation == .r_brace {
+                    // An unfinished call or subscript must not swallow the
+                    // enclosing block and all declarations that follow it.
+                    while openings && tokens[openings[openings.count - 1]].punctuation != .l_brace {
+                        tokens[pop(*openings)].close = i;
+                    }
+                    if !openings continue;
+                }
+
+                opening := openings[openings.count - 1];
+                if jai_delimiters_match(tokens[opening].punctuation, token.punctuation) {
+                    tokens[opening].close = i;
+                    openings.count -= 1;
+                }
+        }
+    }
+
+    mark_jai_platform_branches(source, tokens);
+
+    array_add(*index.scopes, .{end = xx source.count});
+    frames: [..] Jai_Index_Frame;
+    defer array_free(frames);
+    array_add(*frames, .{end_token = tokens.count});
+
+    file_private := false;
+    inactive_depth := 0;
+    for * token, i : tokens {
+        inactive_depth += token.inactive_delta;
+        if token.type == .directive && token.directive == .directive_load {
+            path := jai_literal_path(source, tokens, i + 1);
+            if path.start != path.end then array_add(*index.loads, .{path, inactive_depth > 0});
+        }
+        if inactive_depth > 0 continue;
+
+        while frames.count > 1 && i >= frames[frames.count - 1].end_token {
+            frames.count -= 1;
+        }
+        frame := frames[frames.count - 1];
+
+        if token.type == .directive && frame.declarations {
+            if token.directive == {
+                case .directive_scope_file;   if frame.scope == 0 then file_private = true;
+                case .directive_scope_module; #through;
+                case .directive_scope_export; if frame.scope == 0 then file_private = false;
+                case .directive_import;
+                    if frame.scope == 0 {
+                        bound := i > 0 && tokens[i - 1].type == .operation && tokens[i - 1].operation == .double_colon;
+                        using_import := bound && i >= 3 && tokens[i - 3].type == .keyword && tokens[i - 3].keyword == .kw_using;
+                        if !bound || using_import {
+                            path := jai_literal_path(source, tokens, i + 1);
+                            if path.start != path.end then array_add(*index.imports, path);
+                        }
+                    }
+            }
+        }
+
+        if jai_punctuation(token, .l_brace) || jai_punctuation(token, .l_paren) || jai_punctuation(token, .l_bracket) {
+            frame.end_token = ifx token.close < 0 then tokens.count else token.close;
+            if token.procedure_scope {
+                frame.scope = token.procedure_scope;
+                frame.declarations = true;
+            } else if token.conditional_body {
+                // A Jai #if inserts into the surrounding scope.
+            } else if jai_punctuation(token, .l_brace) && frame.declarations && !token.ignore_body &&
+                      (i == 0 || !jai_punctuation(tokens[i - 1], .period)) {
+                if frame.scope {
+                    frame.scope = add_jai_scope(index, frame.scope, token.start + token.len, jai_scope_end(tokens, token, source.count));
+                } else {
+                    frame.declarations = false;
+                }
+            } else {
+                frame.declarations = false;
+            }
+
+            array_add(*frames, frame);
+            continue;
+        }
+
+        if !frame.declarations || !jai_declaration_colon(tokens, i) continue;
+
+        add_jai_binding_names(index, tokens, i, frame.scope, file_private && frame.scope == 0);
+        if token.operation != .double_colon || i + 1 >= tokens.count continue;
+
+        rhs := i + 1;
+        head := tokens[rhs];
+        if head.type == .keyword && (head.keyword == .kw_struct || head.keyword == .kw_union ||
+                                    head.keyword == .kw_enum || head.keyword == .kw_enum_flags ||
+                                    head.keyword == .kw_interface) {
+            body := find_jai_body(tokens, rhs + 1);
+            if body >= 0 then tokens[body].ignore_body = true;
+            continue;
+        }
+
+        if head.type == .keyword && (head.keyword == .kw_inline || head.keyword == .kw_no_inline) then rhs += 1;
+        if rhs >= tokens.count || !jai_punctuation(tokens[rhs], .l_paren) || tokens[rhs].close < 0 continue;
+
+        arguments_end := tokens[rhs].close;
+        body := find_jai_body(tokens, arguments_end + 1, procedure = true);
+        if body < 0 continue;
+
+        scope := add_jai_scope(index, frame.scope, tokens[rhs].start, jai_scope_end(tokens, tokens[body], source.count));
+        tokens[body].procedure_scope = scope;
+
+        argument := rhs + 1;
+        argument_names_start := argument;
+        while argument < arguments_end {
+            if jai_declaration_colon(tokens, argument) {
+                add_jai_binding_names(index, tokens, argument, scope, false, lower_bound = argument_names_start);
+                // The next declaration can't include names from this type or its default.
+                while argument < arguments_end && !jai_punctuation(tokens[argument], .comma) {
+                    close := tokens[argument].close;
+                    argument = ifx close >= 0 then close + 1 else argument + 1;
+                }
+                argument_names_start = argument + 1;
+            }
+            if argument >= arguments_end break;
+            close := tokens[argument].close;
+            argument = ifx close >= 0 then close + 1 else argument + 1;
+        }
+    }
+}
+
+Jai_Index_Frame :: struct {
+    end_token: s64;
+    scope: s32;
+    declarations := true;
+}
+
+jai_punctuation :: inline (token: Jai_Index_Token, kind: Punctuation) -> bool {
+    return token.type == .punctuation && token.punctuation == kind;
+}
+
+jai_delimiters_match :: inline (left: Punctuation, right: Punctuation) -> bool {
+    return (left == .l_brace && right == .r_brace) ||
+           (left == .l_paren && right == .r_paren) ||
+           (left == .l_bracket && right == .r_bracket);
+}
+
+jai_declaration_colon :: (tokens: [] Jai_Index_Token, i: s64) -> bool {
+    token := tokens[i];
+    if token.type != .operation || (token.operation != .colon && token.operation != .double_colon) return false;
+    if i < 1 || tokens[i - 1].type != .identifier return false;
+
+    if i >= 2 {
+        prefix := tokens[i - 2];
+        if jai_punctuation(prefix, .period) return false;
+        if prefix.type == .keyword && (prefix.keyword == .kw_case || prefix.keyword == .kw_for) return false;
+    }
+    return true;
+}
+
+add_jai_binding_names :: (index: *Jai_Definition_Index, tokens: [] Jai_Index_Token, colon: s64, scope: s32,
+                          file_private: bool, lower_bound: s64 = 0) {
+    i := colon - 1;
+    while i >= lower_bound && tokens[i].type == .identifier {
+        token := tokens[i];
+        array_add(*index.symbols, .{
+            name = .{token.start, token.start + token.len},
+            scope = scope,
+            file_private = file_private,
+        });
+        if i < lower_bound + 2 || !jai_punctuation(tokens[i - 1], .comma) break;
+
+        // A dollar introduces a polymorphic parameter and is outside its name.
+        i -= 2;
+        if jai_punctuation(tokens[i], .dollar) break;
+    }
+}
+
+find_jai_body :: (tokens: [] Jai_Index_Token, start: s64, procedure := false) -> s64 {
+    if start >= tokens.count return -1;
+    if procedure {
+        token := tokens[start];
+        // A parenthesized initializer can also follow '::'. A procedure
+        // continues with a body, an arrow, a note, or a procedure directive.
+        if !jai_punctuation(token, .l_brace) && token.type != .note && token.type != .directive &&
+           !(token.type == .operation && token.operation == .arrow) return -1;
+    }
+
+    i := start;
+    while i < tokens.count {
+        token := tokens[i];
+        if jai_punctuation(token, .l_brace) return i;
+        if jai_punctuation(token, .r_brace) || jai_punctuation(token, .semicolon) ||
+           (token.type == .directive && token.directive == .directive_foreign) ||
+           jai_declaration_colon(tokens, i) return -1;
+
+        i = ifx token.close >= 0 then token.close + 1 else i + 1;
+    }
+    return -1;
+}
+
+jai_scope_end :: inline (tokens: [] Jai_Index_Token, opening: Jai_Index_Token, source_count: s64) -> s32 {
+    return ifx opening.close >= 0 then tokens[opening.close].start else cast(s32) source_count;
+}
+
+add_jai_scope :: (index: *Jai_Definition_Index, parent: s32, start: s32, end: s32) -> s32 {
+    id := cast(s32) index.scopes.count;
+    array_add(*index.scopes, .{start = start, end = end, depth = index.scopes[parent].depth + 1});
+    return id;
+}
+
+jai_token_text :: inline (source: string, token: Jai_Index_Token) -> string {
+    return slice(source, token.start, token.len);
+}
+
+jai_literal_path :: (source: string, tokens: [] Jai_Index_Token, i: s64) -> Offset_Range {
+    if i >= tokens.count || tokens[i].type != .string_literal return .{};
+
+    text := jai_token_text(source, tokens[i]);
+    if text.count < 3 || !ends_with(text, "\"") || contains(text, #char "\\") return .{};
+    return .{tokens[i].start + 1, tokens[i].start + tokens[i].len - 1};
+}
+
+Jai_Condition :: enum { unknown; no; yes; }
+
+mark_jai_platform_branches :: (source: string, tokens: [] Jai_Index_Token) {
+    for token, i : tokens {
+        if !jai_if_directive(token) continue;
+        if i > 0 && jai_else_keyword(tokens[i - 1]) continue;  // handled by the chain's first #if
+
+        next := i;
+        can_reach_branch := true;
+        while next < tokens.count && jai_if_directive(tokens[next]) {
+            header := next + 1;
+            if header < tokens.count && jai_token_text(source, tokens[header]) == "#complete" then header += 1;
+
+            body := find_jai_platform_body(tokens, header);
+            if body < 0 break;
+            condition := evaluate_jai_platform_condition(source, tokens, header, body);
+
+            end := jai_platform_body_end(source, tokens, body);
+            if end < 0 break;
+            if jai_punctuation(tokens[body], .l_brace) {
+                tokens[body].conditional_body = true;
+                // In a compile-time switch, each case controls its own loads.
+                if body == header + 2 && jai_token_text(source, tokens[header]) == "OS" &&
+                   jai_token_text(source, tokens[header + 1]) == "==" {
+                    mark_jai_platform_cases(source, tokens, body, end - 1);
+                }
+            }
+            if !can_reach_branch || condition == .no then mark_inactive_jai_range(tokens, body, end);
+            if condition == .yes then can_reach_branch = false;
+
+            if end + 1 >= tokens.count || !jai_else_keyword(tokens[end]) break;
+            next = end + 1;
+            if jai_if_directive(tokens[next]) continue;
+
+            end = jai_platform_body_end(source, tokens, next);
+            if end < 0 break;
+            if jai_punctuation(tokens[next], .l_brace) then tokens[next].conditional_body = true;
+            if !can_reach_branch then mark_inactive_jai_range(tokens, next, end);
+            break;
+        }
+    }
+}
+
+// Return the first token after a block or a literal #load/#import statement.
+jai_platform_body_end :: (source: string, tokens: [] Jai_Index_Token, body: s64) -> s64 {
+    token := tokens[body];
+    if jai_punctuation(token, .l_brace) return ifx token.close >= 0 then token.close + 1 else -1;
+    if token.type != .directive || (token.directive != .directive_load && token.directive != .directive_import) return -1;
+    if jai_literal_path(source, tokens, body + 1).end == 0 return -1;
+
+    end := body + 2;
+    if end < tokens.count && jai_punctuation(tokens[end], .semicolon) then end += 1;
+    return end;
+}
+
+find_jai_platform_body :: (tokens: [] Jai_Index_Token, start: s64) -> s64 {
+    i := start;
+    while i < tokens.count {
+        token := tokens[i];
+        if jai_punctuation(token, .l_brace) ||
+           (token.type == .directive && (token.directive == .directive_load || token.directive == .directive_import)) return i;
+        if jai_punctuation(token, .semicolon) || jai_punctuation(token, .r_brace) ||
+           jai_if_directive(token) || jai_declaration_colon(tokens, i) return -1;
+        i = ifx token.close >= 0 then token.close + 1 else i + 1;
+    }
+    return -1;
+}
+
+jai_if_directive :: inline (token: Jai_Index_Token) -> bool {
+    return token.type == .directive && token.directive == .directive_if;
+}
+
+jai_else_keyword :: inline (token: Jai_Index_Token) -> bool {
+    return token.type == .keyword && token.keyword == .kw_else;
+}
+
+mark_inactive_jai_range :: (tokens: [] Jai_Index_Token, first: s64, end: s64) {
+    if first >= end return;
+    tokens[first].inactive_delta += 1;
+    if end < tokens.count then tokens[end].inactive_delta -= 1;
+}
+
+evaluate_jai_platform_condition :: (source: string, tokens: [] Jai_Index_Token, first: s64, end: s64, depth := 0) -> Jai_Condition {
+    if first >= end || depth >= 64 return .unknown;
+    if jai_punctuation(tokens[first], .l_paren) && tokens[first].close == end - 1 {
+        return evaluate_jai_platform_condition(source, tokens, first + 1, end - 1, depth + 1);
+    }
+
+    // Split at the lowest precedence operator outside parentheses.
+    last_or, last_and: s64 = -1;
+    i := first;
+    while i < end {
+        if tokens[i].close >= i && tokens[i].close < end {
+            i = tokens[i].close + 1;
+            continue;
+        }
+        text := jai_token_text(source, tokens[i]);
+        if text == "||" then last_or = i;
+        if text == "&&" then last_and = i;
+        i += 1;
+    }
+
+    if last_or >= 0 {
+        left := evaluate_jai_platform_condition(source, tokens, first, last_or, depth + 1);
+        right := evaluate_jai_platform_condition(source, tokens, last_or + 1, end, depth + 1);
+        if left == .yes || right == .yes return .yes;
+        if left == .no && right == .no return .no;
+        return .unknown;
+    }
+    if last_and >= 0 {
+        left := evaluate_jai_platform_condition(source, tokens, first, last_and, depth + 1);
+        right := evaluate_jai_platform_condition(source, tokens, last_and + 1, end, depth + 1);
+        if left == .no || right == .no return .no;
+        if left == .yes && right == .yes return .yes;
+        return .unknown;
+    }
+    if jai_token_text(source, tokens[first]) == "!" {
+        result := evaluate_jai_platform_condition(source, tokens, first + 1, end, depth + 1);
+        if result == .unknown return .unknown;
+        return ifx result == .yes then .no else .yes;
+    }
+    if end - first == 1 {
+        text := jai_token_text(source, tokens[first]);
+        if text == "true" return .yes;
+        if text == "false" return .no;
+    }
+
+    if end - first != 4 || jai_token_text(source, tokens[first]) != "OS" ||
+       !jai_punctuation(tokens[first + 2], .period) || tokens[first + 3].type != .identifier return .unknown;
+
+    operation := jai_token_text(source, tokens[first + 1]);
+    if operation != "==" && operation != "!=" return .unknown;
+    same_os := jai_token_text(source, tokens[first + 3]) == JAI_DEFINITION_OS;
+    return ifx same_os == (operation == "==") then .yes else .no;
+}
+
+JAI_DEFINITION_OS :: #run enum_value_to_name(OS);
+
+mark_jai_platform_cases :: (source: string, tokens: [] Jai_Index_Token, body: s64, end: s64) {
+    starts: [..] s64;
+    starts.allocator = temp;
+    auto_release_temp();
+
+    selected: s64 = -1;
+    default_case: s64 = -1;
+    i := body + 1;
+    while i < end {
+        token := tokens[i];
+        if token.type == .keyword && token.keyword == .kw_case {
+            // Only filter a switch with simple platform labels and no fallthrough.
+            if i + 1 < end && jai_punctuation(tokens[i + 1], .semicolon) {
+                default_case = starts.count;
+            } else if i + 3 < end && jai_punctuation(tokens[i + 1], .period) &&
+                      tokens[i + 2].type == .identifier && jai_punctuation(tokens[i + 3], .semicolon) {
+                if jai_token_text(source, tokens[i + 2]) == JAI_DEFINITION_OS then selected = starts.count;
+            } else {
+                return;
+            }
+            array_add(*starts, i);
+        } else if token.type == .directive && token.directive == .directive_through {
+            return;
+        }
+        i = ifx token.close >= 0 then token.close + 1 else i + 1;
+    }
+
+    if selected < 0 then selected = default_case;
+    for start, j : starts {
+        if j == selected continue;
+        stop := ifx j + 1 < starts.count then starts[j + 1] else end;
+        mark_inactive_jai_range(tokens, start, stop);
+    }
+}

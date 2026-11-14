@@ -4,11 +4,13 @@
 editors_handle_event :: (event: Input.Event) -> handled: bool {
     mods := event.modifier_flags;
     editor, buffer := get_active_editor_and_buffer();
+
     if editor && editor.search_bar.active && editor.search_bar.mode == .vim {
         if event.type == .KEYBOARD && event.key_pressed {
             return vim_search_handle_event(editor, buffer, event);
         }
     }
+
     if config.settings.vim_mode && editor && !editor.search_bar.active {
         if event.type == .TEXT_INPUT && editor.vim.mode != .Insert {
             if editor.vim.find_command then vim_handle_char(editor, buffer, event.utf32);
@@ -19,6 +21,7 @@ editors_handle_event :: (event: Input.Event) -> handled: bool {
                 vim_enter_normal(editor, buffer);
                 return true;
             }
+
             if editor.vim.find_command && event.text_input_count == 0 &&
                event.key_code != .SHIFT && event.key_code != .CTRL && event.key_code != .ALT && event.key_code != .CMD {
                 if event.key_code == .TAB {
@@ -34,11 +37,13 @@ editors_handle_event :: (event: Input.Event) -> handled: bool {
                 editor.vim.find_operator = 0;
                 editor.vim.find_count = 0;
             }
+
             if editor.vim.mode != .Insert {
                 if mods.ctrl_pressed && !mods.alt_pressed && !mods.cmd_meta_pressed && event.key_code == #char "R" {
                     vim_action(editor, buffer, .redo);
                     return true;
                 }
+
                 if !mods.ctrl_pressed && !mods.alt_pressed && !mods.cmd_meta_pressed {
                     if editor.vim.find_command return false;
                     char := vim_command_char(event.key_code, mods.shift_pressed);
@@ -50,7 +55,6 @@ editors_handle_event :: (event: Input.Event) -> handled: bool {
             }
         }
     }
-
 
     if event.type == {
         case .KEYBOARD;
@@ -206,6 +210,7 @@ active_editor_handle_event :: (editor: *Editor, buffer: *Buffer, event: Input.Ev
 
             // Actions which close the search bar
             case .choose_language;                  close_search_bar(editor);
+            case .go_to_definition;                 close_search_bar(editor);
 
             // Actions which don't close the search bar
             case .indentation_detect_from_buffer_contents;
@@ -216,6 +221,13 @@ active_editor_handle_event :: (editor: *Editor, buffer: *Buffer, event: Input.Ev
             // If none of these actions match, don't propagate
             case;                                   return false;
         }
+    }
+
+    if action == .go_to_definition {
+        if active_global_widget != .editors return false;
+        if word_complete.active then word_complete_abort();
+        go_to_definition(editor, buffer);
+        return true;
     }
 
     // We always want to put some actions in a separate edit group (e.g. block indent)

@@ -1,6 +1,7 @@
 // Focus rules deliberately retain their historical wildcard syntax. Git rules
 // have a separate parser and matcher; no Git executable or index is involved.
 Filter_Reason :: enum { DEFAULT; ALLOW; OUTSIDE_INCLUDE; IGNORE; GITIGNORE; TEMPORARY; }
+
 Filter_Result :: struct {
     ignored: bool;
     explicitly_allowed: bool;
@@ -20,6 +21,7 @@ focus_pattern_matches :: (path: string, fp: File_Pattern) -> bool {
         }
         return false;
     }
+
     if fp.should_match_whole_path return path_pattern_match(path, fp);
     chunk_start := 0;
     for i : 0..path.count {
@@ -28,6 +30,7 @@ focus_pattern_matches :: (path: string, fp: File_Pattern) -> bool {
             chunk_start = i + 1;
         }
     }
+
     return false;
 }
 
@@ -47,6 +50,7 @@ focus_pattern_matches_path_or_parent :: (path: string, fp: File_Pattern) -> bool
 evaluate_file_filter :: (input: string, is_dir := false) -> Filter_Result {
     path := input;
     #if OS == .WINDOWS { path = to_lower_copy(path,, temp); }
+
     for fp : config.workspace.allow {
         if focus_pattern_matches(path, fp) return .{false, true, .ALLOW, fp.source, fp.line};
     }
@@ -57,6 +61,7 @@ evaluate_file_filter :: (input: string, is_dir := false) -> Filter_Result {
         }
         if !included return .{ignored = true, reason = .OUTSIDE_INCLUDE};
     }
+
     for fp : config.workspace.ignore {
         if focus_pattern_matches_path_or_parent(path, fp) return .{true, false, .IGNORE, fp.source, fp.line};
     }
@@ -85,6 +90,7 @@ focus_pattern_may_match_descendant :: (dir: string, fp: File_Pattern) -> bool {
     }
     if !fp.should_match_whole_path return true;
     if focus_pattern_matches(dir, fp) return true;
+
     prefix_end := fp.pattern.count;
     for i : 0..fp.pattern.count-1 {
         if fp.pattern[i] == #char "*" || fp.pattern[i] == #char "?" { prefix_end = i; break; }
@@ -98,6 +104,7 @@ focus_pattern_may_match_descendant :: (dir: string, fp: File_Pattern) -> bool {
 filter_should_descend :: (input: string) -> bool {
     dir := input;
     #if OS == .WINDOWS { dir = to_lower_copy(dir,, temp); }
+
     for fp : config.workspace.allow {
         if focus_pattern_may_match_descendant(dir, fp) return true;
     }
@@ -108,6 +115,7 @@ filter_should_descend :: (input: string) -> bool {
         }
         if !reachable return false;
     }
+
     for fp : config.workspace.ignore {
         if focus_pattern_matches_path_or_parent(dir, fp) return false;
     }
@@ -122,6 +130,7 @@ Git_Token :: struct {
     chars: string;
     Kind :: enum { LITERAL; ANY; STAR; GLOBSTAR; GLOBSTAR_SLASH; CLASS; }
 }
+
 Git_Ignore_Rule :: struct {
     pattern: string;
     tokens: [..] Git_Token;
@@ -131,6 +140,7 @@ Git_Ignore_Rule :: struct {
     valid := true;
     line: s64;
 }
+
 Git_Ignore_Directory :: struct {
     path: string;
     source: string;
@@ -177,8 +187,10 @@ flush_file_filter_warnings :: () {
 compile_git_ignore_rule :: (input: string, line_number: s64) -> Git_Ignore_Rule, bool {
     line := input;
     if line_number == 1 && begins_with(line, "\xef\xbb\xbf") advance(*line, 3);
+
     rule: Git_Ignore_Rule;
     rule.line = line_number;
+
     // Only unescaped trailing spaces are discarded. Leading spaces are literal.
     while ends_with(line, " ") {
         escapes := 0;
@@ -187,6 +199,7 @@ compile_git_ignore_rule :: (input: string, line_number: s64) -> Git_Ignore_Rule,
         if escapes % 2 != 0 break;
         line = slice(line, 0, line.count - 1);
     }
+
     if !line || line[0] == #char "#" return rule, false;
     if line[0] == #char "!" { rule.negate = true; advance(*line); }
     if !line return rule, false;
@@ -198,6 +211,7 @@ compile_git_ignore_rule :: (input: string, line_number: s64) -> Git_Ignore_Rule,
     rule.basename_only = !anchored && !contains(line, #char "/");
     #if OS == .WINDOWS { line = to_lower_copy(line); }
     rule.pattern = line;
+
     i := 0;
     while i < line.count {
         c := line[i];
@@ -267,6 +281,7 @@ git_named_class_matches :: (name: string, c: u8) -> bool {
 git_class_matches :: (input: string, c: u8) -> bool {
     chars := input;
     if c == #char "/" return false;
+
     negate := chars && (chars[0] == #char "!" || chars[0] == #char "^");
     if negate advance(*chars);
     matched := false;
@@ -280,6 +295,7 @@ git_class_matches :: (input: string, c: u8) -> bool {
             i = end+2;
             continue;
         }
+
         first := chars[i];
         if first == #char "\\" && i+1 < chars.count { i += 1; first = chars[i]; }
         i += 1;
@@ -302,6 +318,7 @@ git_tokens_match :: (path: string, rule: Git_Ignore_Rule) -> bool {
     next := NewArray(width, bool,, temp);
     row := NewArray(width, bool,, temp);
     next[path.count] = true;
+
     ti := rule.tokens.count - 1;
     while ti >= 0 {
         token := rule.tokens[ti];
@@ -334,6 +351,7 @@ git_tokens_match :: (path: string, rule: Git_Ignore_Rule) -> bool {
 get_git_directory :: (dir: string, scope: string) -> *Git_Ignore_Directory {
     found, existing := table_find(*git_directories, dir);
     if found return existing;
+
     entry := New(Git_Ignore_Directory);
     entry.path = copy_string(dir);
     entry.source = sprint("%/.gitignore", trim_right(dir, "/"));
@@ -344,6 +362,7 @@ get_git_directory :: (dir: string, scope: string) -> *Git_Ignore_Directory {
             entry.result = evaluate_git_chain(entry.parent, dir, true);
         }
     }
+
     // Git does not read .gitignore files inside an excluded parent directory.
     if !entry.result.ignored && !git_ignore_is_symlink(entry.source) {
         if file_exists(entry.source) {
@@ -362,16 +381,19 @@ get_git_directory :: (dir: string, scope: string) -> *Git_Ignore_Directory {
             }
         }
     }
+
     table_set(*git_directories, entry.path, entry);
     return entry;
 }
 
 evaluate_git_chain :: (dir: *Git_Ignore_Directory, path: string, is_dir: bool) -> Filter_Result {
     if dir.result.ignored return dir.result;
+
     result: Filter_Result;
     if dir.parent result = evaluate_git_chain(dir.parent, path, is_dir);
     relative := advance(path, dir.path.count);
     relative = trim_left(relative, "/");
+
     for rule : dir.rules {
         if rule.directory_only && !is_dir continue;
         candidate := relative;
@@ -431,10 +453,12 @@ git_ignore_result :: (path: string, is_dir: bool) -> Filter_Result {
     if !filter_cache_initialized return .{};
     lock(*filter_cache_lock);
     defer unlock(*filter_cache_lock);
+
     push_allocator(.{proc = flat_pool_allocator_proc, data = *filter_cache_pool});
     dir := ifx is_dir then path else filter_parent_directory(path);
     found, entry := table_find(*git_directories, dir);
     if !found entry = get_git_directory(dir, git_scope_for_directory(dir));
+
     if is_dir return entry.result;
     return evaluate_git_chain(entry, path, false);
 }

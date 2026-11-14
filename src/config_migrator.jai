@@ -792,6 +792,8 @@ ADDED_KEYBINDS :: Added_Keybind.[
     .{ 26, "editors", "word_completion_next",                       "Ctrl-E",                       "Cmd-E"},
     .{ 26, "editors", "word_completion_previous",                   "Ctrl-Q",                       "Cmd-Q"},
     .{ 26, "editors", "word_completion_subword",                    "Ctrl-R",                       "Cmd-R"},
+
+    .{ 32, "editors", "go_to_definition",                          "F12",                          "F12" },
 ];
 
 RENAMED_KEYBINDS :: Renamed_Keybind.[
@@ -2279,6 +2281,7 @@ Ctrl-Alt-S Enter            keep_editor
 Ctrl-E                      word_completion_next
 Ctrl-Q                      word_completion_previous
 Ctrl-R                      word_completion_subword
+F12                         go_to_definition
 
 [open file dialog]
 Tab                         open_directory

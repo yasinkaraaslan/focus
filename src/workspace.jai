@@ -225,6 +225,7 @@ reload_workspace :: (automatic := false) {
     deinit_build_system();
     deinit_color_preview();
     deinit_open_file_dialog();
+    deinit_definition_dialog();
     deinit_file_watcher();
     deinit_cursor_history();
     deinit_buffers();
@@ -402,7 +403,7 @@ directory_scan_threadproc :: (group: *Thread_Group, thread: *Thread, work: *void
     for path : file_range.* {
         auto_release_temp();
         if !should_ignore_file(path) {
-            buffer_id, created := find_or_create_buffer(path);
+            buffer_id, created := find_or_create_buffer(path, index_definitions = true);
             if buffer_id < 0 {
                 log_error("Couldn't open file because path is too long for %: \"%\"\n", OS, path);
                 continue;
