@@ -1086,6 +1086,7 @@ focus_allocator: Allocator;
 #load "langs/hlsl.jai";
 #load "langs/golang.jai";
 #load "langs/java.jai";
+#load "langs/vala.jai";
 #load "langs/js.jai";
 #load "langs/json.jai";
 #load "langs/toml.jai";

@@ -289,6 +289,7 @@ get_language_sample_text :: (lang: Buffer.Lang) -> string {
         case .Hlsl;              return SAMPLE_Hlsl;
         case .Golang;            return SAMPLE_Golang;
         case .Java;              return SAMPLE_Java;
+        case .Vala;              return SAMPLE_Vala;
         case .Js;                return SAMPLE_Js;
         case .Json;              return SAMPLE_Json;
         case .Toml;              return SAMPLE_Toml;

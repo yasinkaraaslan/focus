@@ -1515,3 +1515,41 @@ index fa5ae21..3bc8ebf 100644
 
      if dir == .up  editor.cursor_moved = .moved_up;
 LANG_Diff
+
+SAMPLE_Vala :: #string VALA
+using GLib;
+
+public errordomain DemoError {
+    INVALID_NAME
+}
+
+public class Greeter : Object {
+    public string name { get; construct; }
+    public signal void greeted (string message);
+
+    public Greeter (string name) {
+        Object (name: name);
+    }
+
+    public void greet () throws DemoError {
+        // Emit a greeting using a string template.
+        if (name == "") {
+            throw new DemoError.INVALID_NAME ("A name is required");
+        }
+        string message = @"Hello, $name!";
+        greeted (message);
+        print ("%s\n", message);
+    }
+}
+
+int main (string[] args) {
+    var greeter = new Greeter ("Vala");
+    try {
+        greeter.greet ();
+    } catch (DemoError e) {
+        warning ("%s", e.message);
+    }
+    return 0;
+}
+VALA
+;

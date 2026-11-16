@@ -586,6 +586,7 @@ tokenize_for_indentation :: (buffer: *Buffer) -> [] Indentation_Token /* temp */
         case .D;            return tokenize_c_like_lang_for_indentation(buffer, get_next_d_token);
         case .Dart;         return tokenize_dart_for_indentation(buffer);
         case .Java;         return tokenize_c_like_lang_for_indentation(buffer, get_next_java_token);
+        case .Vala;         return tokenize_c_like_lang_for_indentation(buffer, get_next_vala_token);
         case .Js;           return tokenize_js_for_indentation(buffer);
         case .Json;         return tokenize_c_like_lang_for_indentation(buffer, get_next_json_token);
         case .Powershell;   return tokenize_powershell_for_indentation(buffer);
@@ -1734,6 +1735,7 @@ get_tokenize_function :: (lang: Buffer.Lang) -> Tokenize_Function {
         case .Hlsl;                 return tokenize_hlsl;
         case .Golang;               return tokenize_golang;
         case .Java;                 return tokenize_java;
+        case .Vala;                 return tokenize_vala;
         case .Js;                   return tokenize_js;
         case .Json;                 return tokenize_json;
         case .Toml;                 return tokenize_toml;
@@ -2018,6 +2020,7 @@ Buffer :: struct {
         Focus_Config;
         Focus_Theme;
         Focus_Build_Panel;  // a fake lang to be assigned to the build panel instead of Plain_Text so that its tokens are preserved
+        Vala;
     };
 }
 

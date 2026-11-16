@@ -2450,6 +2450,8 @@ get_lang_from_path :: (full_path: string) -> Buffer.Lang {
         case "lua";             lang = .Lua;
         case "luau";            lang = .Luau;
         case "java";            lang = .Java;
+        case "vala";            lang = .Vala;
+        case "vapi";            lang = .Vala;
         case "odin";            lang = .Odin;
         case "ps1";             lang = .Powershell;
         case "py";              lang = .Python;
@@ -4609,6 +4611,7 @@ toggle_comment :: (editor: *Editor, buffer: *Buffer, is_fallback := false) {
         case .C;      #through;
         case .Cpp;    #through;
         case .CSharp; #through;
+        case .Vala;   #through;
         case .D;      #through;
         case .Dart;   #through;
         case .Glsl;   #through;
@@ -4839,6 +4842,7 @@ toggle_block_comment :: (editor: *Editor, buffer: *Buffer, is_fallback := false)
         case .Cpp;    #through;
         case .Css;    #through;
         case .CSharp; #through;
+        case .Vala;   #through;
         case .D;      #through;
         case .Dart;   #through;
         case .Glsl;   #through;
