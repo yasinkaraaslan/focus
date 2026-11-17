@@ -13,16 +13,17 @@ editors_handle_event :: (event: Input.Event) -> handled: bool {
 
     if config.settings.vim_mode && editor && !editor.search_bar.active {
         if event.type == .TEXT_INPUT && editor.vim.mode != .Insert {
-            if editor.vim.find_command then vim_handle_char(editor, buffer, event.utf32);
+            if vim_is_find(editor.vim.prefix) then vim_handle_char(editor, buffer, event.utf32);
             return true;
         }
         if event.type == .KEYBOARD && event.key_pressed {
-            if event.key_code == .ESCAPE || (mods.ctrl_pressed && event.key_code == #char "[") {
+            ctrl_only := mods.packed == Mods.{ctrl_pressed = true}.packed;
+            if event.key_code == .ESCAPE || (ctrl_only && event.key_code == #char "[") {
                 vim_enter_normal(editor, buffer);
                 return true;
             }
 
-            if editor.vim.find_command && event.text_input_count == 0 &&
+            if vim_is_find(editor.vim.prefix) && event.text_input_count == 0 &&
                event.key_code != .SHIFT && event.key_code != .CTRL && event.key_code != .ALT && event.key_code != .CMD {
                 if event.key_code == .TAB {
                     vim_handle_char(editor, buffer, #char "\t");
@@ -33,19 +34,22 @@ editors_handle_event :: (event: Input.Event) -> handled: bool {
                     vim_handle_char(editor, buffer, #char "\n");
                     return true;
                 }
-                editor.vim.find_command = 0;
-                editor.vim.find_operator = 0;
-                editor.vim.find_count = 0;
+                vim_clear_command(editor);
+                editor.vim.repeat.recording = false;
             }
 
             if editor.vim.mode != .Insert {
-                if mods.ctrl_pressed && !mods.alt_pressed && !mods.cmd_meta_pressed && event.key_code == #char "R" {
-                    vim_action(editor, buffer, .redo);
+                if ctrl_only {
+                    if vim_handle_control(editor, buffer, event.key_code) return true;
+                }
+                if !mods.ctrl_pressed && !mods.alt_pressed && !mods.cmd_meta_pressed &&
+                   (event.key_code == .ENTER || event.key_code == .NUMPAD_ENTER) {
+                    vim_handle_char(editor, buffer, #char "\n");
                     return true;
                 }
 
                 if !mods.ctrl_pressed && !mods.alt_pressed && !mods.cmd_meta_pressed {
-                    if editor.vim.find_command return false;
+                    if vim_is_find(editor.vim.prefix) return false;
                     char := vim_command_char(event.key_code, mods.shift_pressed);
                     if char {
                         vim_handle_char(editor, buffer, char);
@@ -63,6 +67,9 @@ editors_handle_event :: (event: Input.Event) -> handled: bool {
                 if active_hold_actions && !is_hold_action(action) return true;  // don't execute any non-hold actions while hold actions are active
 
                 editor, buffer := get_active_editor_and_buffer();
+                if editor && config.settings.vim_mode && editor.vim.mode == .Insert && !editor.search_bar.active {
+                    if action != cast(Action_Editors) INVALID_KEYMAP_ACTION then vim_repeat_insert_action(editor, action);
+                }
                 return active_editor_handle_event(editor, buffer, event, action);
 
             } else {
@@ -108,7 +115,7 @@ editors_handle_file_drop :: (files: [] string) {
     }
 }
 
-active_editor_handle_event :: (editor: *Editor, buffer: *Buffer, event: Input.Event, action: Action_Editors) -> handled: bool {
+active_editor_handle_event :: (editor: *Editor, buffer: *Buffer, event: Input.Event, action: Action_Editors, undo_cursors: [] Cursor = .[]) -> handled: bool {
     // Handle actions which work without an active editor first
     handled := true;
     if action == {
@@ -235,10 +242,12 @@ active_editor_handle_event :: (editor: *Editor, buffer: *Buffer, event: Input.Ev
     for cursor : editor.cursors { if new_edit_group_required_for_action(action, cursor) { new_group = true; break; } }
     if new_group || (to_float64_seconds(frame_time) - buffer.last_edit_time) >= EDIT_GROUP_TIMEOUT then new_edit_group(buffer, editor);  // do it before action
 
-    // We want to remember where cursors were before we do any edits
+    // Some commands build temporary selections before calling this action.
+    // In that case undo should remember the cursors from before the selection.
     if !buffer.edits {
-        resize(*buffer.cursors, editor.cursors.count);
-        for * cursor, i : buffer.cursors { cursor.* = editor.cursors[i]; }
+        before := ifx undo_cursors then undo_cursors else to_view(editor.cursors);
+        resize(*buffer.cursors, before.count);
+        for before { buffer.cursors[it_index] = it; }
     }
 
     keep_selection := false;
@@ -453,6 +462,8 @@ active_editor_type_char :: (char: u32) {
 
     context.current_editor_id = get_active_editor_id();
     defer context.current_editor_id = -1;
+
+    if config.settings.vim_mode then vim_repeat_record(editor, .{kind = .Text, char = char});
 
     if editor.search_bar.active {
         text_input_type_char(*editor.search_bar.input, char);
@@ -1860,6 +1871,9 @@ search_and_update_results :: (using editor: *Editor, buffer: Buffer, jump := fal
 }
 
 free_editor :: (using editor: *Editor) {
+    reset(*vim.visual_cursors);
+    reset(*vim.repeat.draft);
+    reset(*vim.repeat.last_change);
     reset(*cursors);
     reset(*highlights);
     reset(*search_bar.results);
@@ -2255,7 +2269,17 @@ find_all :: (using search_bar: *Search_Bar, needle: string, buffer: Buffer) {
             offset = inline bmh_find_index_from_left(buffer_str, needle, start_index = offset, skip_table, case_sensitive = false);
         }
         if offset < 0 break;
-        if whole_word && !is_whole_word(buffer_str, offset, needle.count) { offset += needle.count; continue; }
+        if whole_word {
+            if mode == .vim {
+                left := offset == 0 || vim_word_class(buffer_str[offset - 1]) != 1;
+                end := offset + needle.count;
+                right := end == buffer_str.count || vim_word_class(buffer_str[end]) != 1;
+                if !left || !right { offset += needle.count; continue; }
+            } else if !is_whole_word(buffer_str, offset, needle.count) {
+                offset += needle.count;
+                continue;
+            }
+        }
 
         // Valid result, add it to the list
         if selected_result < 0 && offset >= search_point_offset then selected_result = results.count;
@@ -5306,6 +5330,7 @@ word_complete: Word_Completion;
 
 Editor :: struct {
     vim: Vim_State;
+    text_height: s32; // Last rendered text area, excluding status/search bars.
     buffer_id: s64;
 
     viewport:   Viewport;
@@ -5375,6 +5400,9 @@ Search_Bar :: struct {
     vim_original_cursors: Array(Cursor);
     vim_original_main_cursor: s32;
     vim_original_cursor: s32;
+    vim_operator: u32;
+    vim_pattern_regex := true;
+    vim_pattern_whole_word: bool;
     vim_backward: bool;     // last accepted direction; N must not change it
     vim_prompt_backward: bool;
     vim_count: s32 = 1;

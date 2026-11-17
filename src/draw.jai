@@ -915,6 +915,7 @@ draw_editor :: (editor_id: s64, main_area: Rect, ui_id: Ui_Id, pane: *Editor_Pan
     rect, status_bar_rect, line_number_panel := get_editor_subrects(editor_id, main_area, has_status_bar);
 
     if !is_valid(rect) return;
+    editor.text_height = cast(s32) rect.h;
 
     maybe_set_hot_or_active(ui_id, rect, .TEXT_SELECT);
 

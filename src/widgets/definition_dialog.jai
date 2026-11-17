@@ -195,9 +195,12 @@ jump_to_jai_definition :: (location: Jai_Definition_Location, placement: Editor_
     cursor.col_wanted = -1;
 
     if config.settings.vim_mode {
-        last_find_command := editor.vim.last_find_command;
-        last_find_char := editor.vim.last_find_char;
-        editor.vim = .{last_find_command = last_find_command, last_find_char = last_find_char};
+        vim_clear_command(editor);
+        editor.vim.mode = .Normal;
+        editor.vim.visual_line = false;
+        editor.vim.insert_count = 0;
+        editor.vim.repeat.recording = false;
+        reset_keeping_memory(*editor.vim.visual_cursors);
     }
 
     history_reset_last_seen_cursor();

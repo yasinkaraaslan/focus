@@ -1799,6 +1799,9 @@ add_edit_notification :: (buffer: *Buffer, offset: s64, old_count: s64, new_coun
         delta     = cast(s32) (new_count - old_count),
     };
 
+    for * mark: buffer.vim_marks {
+        if mark.valid && mark.pos >= notification.offset then mark.pos = max(notification.offset, mark.pos + notification.delta);
+    }
     history_add_edit_notification_to_batch(notification);
 
     if buffer.num_editors_open >= 2 {
@@ -1875,6 +1878,7 @@ buffer_edit_notifications: Array(Buffer.Edit_Notification);
 
 
 Buffer :: struct {
+    vim_marks: [26] Vim_Mark;
     bytes:       Array(u8);
     line_starts: Array(s32);       // real offsets of newlines in the bytes array
     tokens:      Array(Token_Type);     // we assign a token to each byte (even for multi-byte chars).
